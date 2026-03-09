@@ -1,0 +1,75 @@
+# session_started_at=2026-03-09T10:50:48
+# session_log_path=D:\MyProject\python\Agent\K_Distillation\volca\project\client_mic_chunk\logs\session_20260309_105048_999062.log
+[10:50:48] [LOG_FILE] D:\MyProject\python\Agent\K_Distillation\volca\project\client_mic_chunk\logs\session_20260309_105048_999062.log
+[10:50:49] [PROMPT_SYNC] system_chars=1365 profile_chars=520 workflow_chars=620 workflow_json=off intent_labels=63 fallback_label=-
+[10:50:49] [FLOW_UPLOAD] disabled
+[10:50:49] [START_ENV_OVERRIDES] BEGIN
+[10:50:49] [START_ENV_OVERRIDES] {
+[10:50:49] [START_ENV_OVERRIDES]   "CUSTOMER_PROFILE": "【客户画像】\n催收员工号: 83441102,\n催收员姓名: 李悦,\n客户姓名: 张美玲,\n客户性别: 女,\n客户年龄: 38岁,\n客户尊称: 张女士,\n客户所在城市: 武汉,\n客户地址: 武昌区东湖花园5号楼2单元408室,\n客户账户编号: C2251570678,\n客户身份证后四位: 3418,\n银行全称: 建设银行,\n贷款产品名称: 龙卡消费贷,\n贷款时间: 10月22日,\n贷款金额: 18960元,\n当前逾期天数: 6天,\n当前逾期开始日期: 2月18日,\n是否首逾: 是,\n总欠款金额: 9260元,\n本期应还款额: 4520元,\n本金金额: 4180元,\n利息金额: 325元,\n罚息金额: 15元,\n银行要求本期一次性结清日期: 明天,\n银行要求本期一次性结清时间: 14,\n最近一次还款金额: 5120元,\n最近一次还款日期: 1月30日,\n最近一次还款方式: 支付宝转账,\n最近一次延期天数: NA,\n最近一次延期是否按时到账: 无历史延期,\n客户风险分级: 低,\n约定还款方式: 支付宝还款,\n扣款银行卡后四位: 8721,\n对话基准日期: 2月24日,\n对话基准日期(周单位): 星期五,\n对话基准时间: 10点,",
+[10:50:49] [START_ENV_OVERRIDES]   "WORKFLOW_TEXT": "【催收流程】\n1、开场与合规\n- 问候 + 确认是否方便通话\n- 告知银行/机构身份、姓名/工号、通话录音与用途\n\n2、核身与账户定位\n- 通过画像字段进行核身（常用：身份证后四位/账户号后几位）；客户确认后再进入业务\n\n3、逾期事实告知与基本口径\n- 告知：产品/账户、当前逾期事实、需要尽快处理的要求（金额、逾期天数等以画像为准）\n- 说明逾期后果（合规、克制、不夸大）：例如征信/信用记录影响、罚息/费用可能继续增加、后续管理措施升级等\n\n4、原因与态度探询（拉扯起点）\n- 询问未及时处理的原因、当前处理意愿与可行性\n- 允许客户情绪与反问；催收员要稳住节奏、澄清口径、把话题拉回“如何处理”\n\n5、推进可执行方案（核心争取）\n- 原则：若客户已还/正在操作，优先转入“确认已处理 + 以入账为准”收口；否则争取一次性处理（以结局目标为准）\n- 追问方式必须是“确认式单值”：\n  例：我确认一下，您是【今天】一次性处理，对吗？\n- 若客户仅表达“尽量/看看/到时候再说”等保留语气，即视为“意向口径”，不得判定达成承诺\n\n6、结局收口\n7、结尾合规提醒\n\n要求：\n1、不要寒暄、不要安抚话术；信息密度高；先按N1开始主动开口。\n2、不要被客户三言两语打发了，要落实还款时间、金额、渠道。如客户不能还款要问清原因，并施加必要的压力\n3、回复内容不要太长，可以分多轮对话表述清楚。回复要言简意赅。\n4、是电话催收场景，对话要完全口语化",
+[10:50:49] [START_ENV_OVERRIDES]   "WORKFLOW_JSON": "",
+[10:50:49] [START_ENV_OVERRIDES]   "SYSTEM_INSTRUCTION_TEXT": "1、你是银行电话催收业务的专家，你的任务是结合用户画像和催收流程以及对话的上文为催收员生成下一步电话催收话术。\n2、请主动发起通话并推进沟通\n3、话术要口语化表达，说话要简短，不要长篇大论\n4、如需提问，每次不得超过两个问题。可以通过多轮对话把问题搞清楚，不能一股脑一次提一堆问题\n5、生成的话术是催收员实际要说的话，不能带任何注释和说明\n6、如果有需要核实的问题，不能在线核实（所有的核实工作需要线下完成），此时需要输出结束当前对话的话术。",
+[10:50:49] [START_ENV_OVERRIDES]   "INTENT_LABELS": "C00_确认本人接听\nC01_非本人接听\nC02_拒绝核验身份\nC03_质疑催收身份或合法性\nC04_当前可以沟通\nC05_当前不便沟通_请求改约时间\nC06_询问对方身份或来电目的\nC11_表示知晓欠款与逾期事实\nC12_表示不知晓逾期\nC13_询问逾期详情\nC14_询问具体还款金额\nC15_回顾还款历史\nC16_表示知晓逾期后果\nC17_询问逾期后果\nC18_说明逾期或资金困难已持续较长时间\nC20_解释逾期原因_客观困难\nC21_解释逾期原因_主观原因\nC22_表示经济困难无还款能力\nC23_说明当前收入与现金流情况\nC24_说明多头负债或其他压力\nC25_表示家人亲友无法提供帮助\nC26_说明筹措资金方法\nC27_预估可用还款金额\nC28_无力全额还款\nC29_表示可以筹到足够资金\nC30_明确表示愿意还款\nC31_还款态度敷衍暧昧\nC32_明确拒绝还款\nC33_承诺部分还款\nC34_承诺全额还款\nC36_请求部分还款\nC40_要求不影响信用\nC41_抱怨催收骚扰\nC42_请求停止骚扰\nC43_情绪失控_辱骂或威胁\nC44_合约或费用争议\nC45_抱怨催收话术恐吓\nC46_否认逾期责任或完全甩锅他方\nC50_确认联系方式\nC51_更新联系方式\nC52_客户不方便接听\nC53_提供发薪日或进账日\nC54_拒绝联系家人或单位\nC60_主动请求分期偿还\nC63_拒绝给出明确还款时间\nC70_请求延期_模糊\nC71_请求延期_具体时间\nC80_主动请求减免或优惠\nC83_主动请求只还本金\nC90_提出还款时间安排\nC91_确认还款承诺\nC92_确认再联系时间或方式\nC93_拒绝或无法满足催方指定还款时间点\nC95_还款途径说明\nC96_确认银行还款卡号\nC97_还款操作条件受限 / 暂时无法操作\nC100_接受后续流程或消极配合\nC101_同意尝试走困难申请流程\nC102_愿意配合补充信息或材料\nC103_拒绝或无法提供申请材料\nC132_主动结束对话\nC133_要求提供账务明细或盖章凭证\nC199_其他无实质业务意图",
+[10:50:49] [START_ENV_OVERRIDES]   "INTENT_FALLBACK_LABEL": ""
+[10:50:49] [START_ENV_OVERRIDES] }
+[10:50:49] [START_ENV_OVERRIDES] END
+[10:50:48] [CUSTOMER_DATA] profile_call_btn.invoke() dispatched
+[10:50:49] process started: d:\anaconda3\python.exe -u mic_chunk_client.py --chunk-ms 20 --queue-size 128 --aec-ref-delay-ms 180 --aec-max-suppress-gain 2.2 --aec-near-end-protect-ratio 1.22 --aec-tts-warmup-mute-ms 80 --aec-tts-ref-wait-mute-ms 1200 --server-env local --aec --aec-engine webrtc --aec-webrtc-required --aec-auto-delay --no-aec-echo-gate --no-aec-webrtc-ns --no-aec-webrtc-post-filter --no-aec-tts-half-duplex
+[10:50:49] {"endpoint": {"control": "ws://127.0.0.1:8080/ws/realtime/control?session_id=mic_d6b1d749133e&format=pcm", "media": "ws://127.0.0.1:8080/ws/realtime/media?session_id=mic_d6b1d749133e&format=pcm"}, "server_env": "local", "base_url": "http://127.0.0.1:8080", "transport": "ws", "session_id": "mic_d6b1d749133e", "chunk_ms": 20, "sample_rate": 16000, "packets_per_second": 50.0, "chunk_bytes": 640, "ws_split_channels": true, "response_mode": "stream_audio", "playback": true, "local": false, "aec_enabled": true, "aec_engine": "webrtc", "aec_webrtc_required": true, "aec_webrtc_post_filter": false, "aec_ref_delay_ms": 180, "aec_ref_buffer_ms": 500, "asrws": false, "asr_language": "zh-CN"}
+[10:50:49] Press Ctrl+C to stop.
+[10:50:50] [mic] using default input device: index=1, name=麦克风阵列 (适用于数字麦克风的英特尔® 智音技术), max_input_channels=6, default_rate=44100
+[10:50:50] [mic/monitor] opening input stream sample_rate=16000 chunk_ms=20 frames_per_chunk=320
+[10:50:50] [mic/monitor] opened input stream sample_rate=16000 chunk_ms=20 frames_per_chunk=320
+[10:50:50] [spk] using default output device: index=3, name=扬声器 (Realtek(R) Audio), max_output_channels=2, default_rate=44100
+[10:50:50] [aec] output_latency_adjust base_delay_ms=180 output_latency_ms=128 effective_delay_ms=308 dynamic_delay_ms=308
+[10:50:50] [aec] enabled engine=webrtc effective_engine=webrtc webrtc_backend=aec_audio_processing.AudioProcessor webrtc_post_filter=False ref_delay_ms=180 ref_buffer_ms=500 ref_hold_ms=250 auto_delay=True auto_delay_min_score=0.22 search_span_ms=260 search_step_ms=5 auto_delay_interval_chunks=4 echo_gate=False tts_warmup_mute_ms=80 tts_ref_wait_mute_ms=1200 tts_stale_ms=900 preserve_barge_in=True barge_in_warmup_rms=900.0 tts_gate_sim=0.66 tts_gate_clean_sim=0.5 tts_gate_rms_ratio=1.25 tts_half_duplex=False tts_barge_in_rms=1200.0 tts_barge_in_ratio=1.65 tts_barge_in_sim_max=0.55 tts_barge_in_chunks=2 tts_barge_in_interrupt=False near_end_protect_ratio=1.22 use_output_latency=True output_latency_ms=128 sample_rate=16000 playback_sample_rate=24000
+[10:50:50] [ws] connected(control): ws://127.0.0.1:8080/ws/realtime/control?session_id=mic_d6b1d749133e&format=pcm
+[10:50:50] [ws] connected(media):   ws://127.0.0.1:8080/ws/realtime/media?session_id=mic_d6b1d749133e&format=pcm
+[10:50:50] [ws/event] {'event': 'waiting_peer', 'session_id': 'mic_d6b1d749133e', 'channel': 'control', 'message': 'waiting for media/control channel'}
+[10:50:50] [ws/ready] session_id=mic_d6b1d749133e
+[10:50:50] [mic/monitor] first_chunk chunk_bytes=640 rms=0
+[10:50:50] [ws/control] set_system_prompt sent trigger=ready chars=0 prompt_context=on prompt_context_keys=customer_profile,system_instruction,workflow_text workflow_json=off nodes=0 edges=0
+[10:50:50] [asr/monitor] ready session_id=mic_d6b1d749133e sample_rate=16000
+[10:50:50] [ws/send] chunk=0 bytes=640
+[10:50:50] [send] chunk=0 done in 0ms
+[10:50:50] [ws/command] command=set_system_prompt action=updated terminate_source= terminate_reason= terminate_trace_id= workflow_applied=None workflow_nodes=None workflow_edges=None
+[10:50:51] [ws/send] chunk=20 bytes=640
+[10:50:51] [send] chunk=20 done in 0ms
+[10:50:51] [ws/send] chunk=40 bytes=640
+[10:50:51] [send] chunk=40 done in 0ms
+[10:50:52] [ws/send] chunk=60 bytes=640
+[10:50:52] [send] chunk=60 done in 0ms
+[10:50:52] [ws/send] chunk=80 bytes=640
+[10:50:52] [send] chunk=80 done in 0ms
+[10:50:52] [mic/monitor] captured_chunks=100 last_chunk_bytes=640 rms=0
+[10:50:52] [ws/send] chunk=100 bytes=640
+[10:50:52] [send] chunk=100 done in 0ms
+[10:50:53] [ws/send] chunk=120 bytes=640
+[10:50:53] [send] chunk=120 done in 0ms
+[10:50:53] [ws/send] chunk=140 bytes=640
+[10:50:53] [send] chunk=140 done in 1ms
+[10:50:54] [ws/send] chunk=160 bytes=640
+[10:50:54] [send] chunk=160 done in 0ms
+[10:50:54] [ws/send] chunk=180 bytes=640
+[10:50:54] [send] chunk=180 done in 0ms
+[10:50:54] [mic/monitor] captured_chunks=200 last_chunk_bytes=640 rms=0
+[10:50:54] [ws/send] chunk=200 bytes=640
+[10:50:54] [send] chunk=200 done in 0ms
+[10:50:55] [ws/send] chunk=220 bytes=640
+[10:50:55] [send] chunk=220 done in 0ms
+[10:50:55] [ws/send] chunk=240 bytes=640
+[10:50:55] [send] chunk=240 done in 1ms
+[10:50:56] [ws/send] chunk=260 bytes=640
+[10:50:56] [CUSTOMER_DATA] call-icon clicked -> invoke profile call
+[10:50:56] [ASR_MONITOR] pinned python launcher to current interpreter: d:\anaconda3\python.exe
+[10:50:56] [ASR_MONITOR] enabled python -u for realtime log output
+[10:50:56] [ASR_MONITOR] added --aec
+[10:50:56] [ASR_MONITOR] set --aec-engine webrtc
+[10:50:56] [ASR_MONITOR] added --aec-webrtc-required
+[10:50:56] [ASR_MONITOR] added --aec-auto-delay
+[10:50:56] [ASR_MONITOR] added --no-aec-echo-gate
+[10:50:56] [ASR_MONITOR] added --no-aec-webrtc-ns
+[10:50:56] [ASR_MONITOR] added --no-aec-webrtc-post-filter
+[10:50:56] [ASR_MONITOR] added --no-aec-tts-half-duplex
+[10:50:56] [ASR_MONITOR] start_check mic=open -> close_then_reopen
+[10:50:57] [ASR_MONITOR] mic_state source=main state=closed reason=stop_clicked

@@ -1,0 +1,104 @@
+# session_started_at=2026-03-09T21:32:26
+# session_log_path=D:\MyProject\python\Agent\K_Distillation\volca\project\client_mic_chunk\logs\session_20260309_213226_559196.log
+[21:32:26] [LOG_FILE] D:\MyProject\python\Agent\K_Distillation\volca\project\client_mic_chunk\logs\session_20260309_213226_559196.log
+[21:32:26] [PROMPT_SYNC] system_chars=1184 profile_chars=516 workflow_chars=443 workflow_json=off intent_labels=63 fallback_label=-
+[21:32:26] [FLOW_UPLOAD] disabled
+[21:32:26] [START_ENV_OVERRIDES] BEGIN
+[21:32:26] [START_ENV_OVERRIDES] {
+[21:32:26] [START_ENV_OVERRIDES]   "CUSTOMER_PROFILE": "【客户画像】\n催收员工号: 83441102,\n催收员姓名: 张伟,\n客户姓名: 李曼丽,\n客户性别: 女,\n客户年龄: 38岁,\n客户尊称: 李女士,\n客户所在城市: 武汉,\n客户地址: 武昌区东湖景园2号楼1单元501室,\n客户账户编号: C2251570899,\n客户身份证后四位: 1278,\n银行全称: 建设银行,\n贷款产品名称: 快享经营贷,\n贷款时间: 10月5日,\n贷款金额: 18900元,\n当前逾期天数: 6天,\n当前逾期开始日期: 1月28日,\n是否首逾: 是,\n总欠款金额: 7620元,\n本期应还款额: 3850元,\n本金金额: 3520元,\n利息金额: 305元,\n罚息金额: 25元,\n银行要求本期一次性结清日期: 今天,\n银行要求本期一次性结清时间: 16,\n最近一次还款金额: 5210元,\n最近一次还款日期: 1月2日,\n最近一次还款方式: 柜台存现,\n最近一次延期天数: NA,\n最近一次延期是否按时到账: 无历史延期,\n客户风险分级: 低,\n约定还款方式: 支付宝还款,\n扣款银行卡后四位: 8731,\n对话基准日期: 2月3日,\n对话基准日期(周单位): 星期二,\n对话基准时间: 10点,",
+[21:32:26] [START_ENV_OVERRIDES]   "WORKFLOW_TEXT": "**客户类型分析：** 该客户属于“因银行方流程/技术问题引发强烈不满，但仍有还款意愿和配合度”的类型。客户情绪激动但多次承诺配合，不属于恶意拖欠或欺骗，策略应以解决问题为导向，态度专业、耐心但需坚定推进。\n\n**下一步对话策略建议（按优先级排序）：**\n\n1.  **首要核心：核实还款事实。** 首先致电，开场再次为之前的沟通不畅致歉，随后直接、明确询问客户具体通过哪个渠道（如：具体银行APP、网银、柜台）进行的还款操作，以便我方立即在内部系统进行针对性核查。\n2.  **解决凭证问题，提供明确替代方案。** 告知客户经查仍未收到其彩信凭证，主动提供除彩信外的其他凭证发送方式（如：添加工作微信发送、发送至指定邮箱），并询问其是否愿意尝试，同时告知我方技术部门也在同步核查短信接收通道。\n3.  **设定明确时限，进行闭环管理。** 无论以上哪项先有结果，都需与客户约定一个确切的时间点（如：1小时后）进行主动回访，告知核查进展或结果，避免让客户陷入被动等待，从而再次引发不满。",
+[21:32:26] [START_ENV_OVERRIDES]   "WORKFLOW_JSON": "",
+[21:32:26] [START_ENV_OVERRIDES]   "SYSTEM_INSTRUCTION_TEXT": "1、你是银行电话催收业务的专家，你的任务是结合用户画像和催收流程以及对话的上文为催收员生成下一步电话催收话术。\n2、请主动发起通话并推进沟通\n3、话术要口语化表达，说话要简短，不要长篇大论\n4、如需提问，每次不得超过两个问题。可以通过多轮对话把问题搞清楚，不能一股脑一次提一堆问题\n5、生成的话术是催收员实际要说的话，不能带任何注释和说明\n6、如果有需要核实的问题，不能在线核实（所有的核实工作需要线下完成），此时需要输出结束当前对话的话术。",
+[21:32:26] [START_ENV_OVERRIDES]   "INTENT_LABELS": "C00_确认本人接听\nC01_非本人接听\nC02_拒绝核验身份\nC03_质疑催收身份或合法性\nC04_当前可以沟通\nC05_当前不便沟通_请求改约时间\nC06_询问对方身份或来电目的\nC11_表示知晓欠款与逾期事实\nC12_表示不知晓逾期\nC13_询问逾期详情\nC14_询问具体还款金额\nC15_回顾还款历史\nC16_表示知晓逾期后果\nC17_询问逾期后果\nC18_说明逾期或资金困难已持续较长时间\nC20_解释逾期原因_客观困难\nC21_解释逾期原因_主观原因\nC22_表示经济困难无还款能力\nC23_说明当前收入与现金流情况\nC24_说明多头负债或其他压力\nC25_表示家人亲友无法提供帮助\nC26_说明筹措资金方法\nC27_预估可用还款金额\nC28_无力全额还款\nC29_表示可以筹到足够资金\nC30_明确表示愿意还款\nC31_还款态度敷衍暧昧\nC32_明确拒绝还款\nC33_承诺部分还款\nC34_承诺全额还款\nC36_请求部分还款\nC40_要求不影响信用\nC41_抱怨催收骚扰\nC42_请求停止骚扰\nC43_情绪失控_辱骂或威胁\nC44_合约或费用争议\nC45_抱怨催收话术恐吓\nC46_否认逾期责任或完全甩锅他方\nC50_确认联系方式\nC51_更新联系方式\nC52_客户不方便接听\nC53_提供发薪日或进账日\nC54_拒绝联系家人或单位\nC60_主动请求分期偿还\nC63_拒绝给出明确还款时间\nC70_请求延期_模糊\nC71_请求延期_具体时间\nC80_主动请求减免或优惠\nC83_主动请求只还本金\nC90_提出还款时间安排\nC91_确认还款承诺\nC92_确认再联系时间或方式\nC93_拒绝或无法满足催方指定还款时间点\nC95_还款途径说明\nC96_确认银行还款卡号\nC97_还款操作条件受限 / 暂时无法操作\nC100_接受后续流程或消极配合\nC101_同意尝试走困难申请流程\nC102_愿意配合补充信息或材料\nC103_拒绝或无法提供申请材料\nC132_主动结束对话\nC133_要求提供账务明细或盖章凭证\nC199_其他无实质业务意图",
+[21:32:26] [START_ENV_OVERRIDES]   "INTENT_FALLBACK_LABEL": ""
+[21:32:26] [START_ENV_OVERRIDES] }
+[21:32:26] [START_ENV_OVERRIDES] END
+[21:32:26] [CUSTOMER_DATA] profile_call_btn.invoke() dispatched
+[21:32:26] process started: d:\anaconda3\python.exe -u mic_chunk_client.py --chunk-ms 20 --queue-size 128 --aec-ref-delay-ms 180 --aec-max-suppress-gain 2.2 --aec-near-end-protect-ratio 1.22 --aec-tts-warmup-mute-ms 80 --aec-tts-ref-wait-mute-ms 1200 --server-env local --aec --aec-engine webrtc --aec-webrtc-required --aec-auto-delay --no-aec-echo-gate --no-aec-webrtc-ns --no-aec-webrtc-post-filter --no-aec-tts-half-duplex
+[21:32:27] {"endpoint": {"control": "ws://127.0.0.1:8080/ws/realtime/control?session_id=mic_60c1772dfa3d&format=pcm", "media": "ws://127.0.0.1:8080/ws/realtime/media?session_id=mic_60c1772dfa3d&format=pcm"}, "server_env": "local", "base_url": "http://127.0.0.1:8080", "transport": "ws", "session_id": "mic_60c1772dfa3d", "chunk_ms": 20, "sample_rate": 16000, "packets_per_second": 50.0, "chunk_bytes": 640, "ws_split_channels": true, "response_mode": "stream_audio", "playback": true, "local": false, "aec_enabled": true, "aec_engine": "webrtc", "aec_webrtc_required": true, "aec_webrtc_post_filter": false, "aec_ref_delay_ms": 180, "aec_ref_buffer_ms": 500, "asrws": false, "asr_language": "zh-CN"}
+[21:32:27] Press Ctrl+C to stop.
+[21:32:27] [mic] using default input device: index=1, name=麦克风阵列 (适用于数字麦克风的英特尔® 智音技术), max_input_channels=6, default_rate=44100
+[21:32:27] [mic/monitor] opening input stream sample_rate=16000 chunk_ms=20 frames_per_chunk=320
+[21:32:27] [ASR_MONITOR] mic_state source=main state=open reason=log_detected
+[21:32:27] [mic/monitor] opened input stream sample_rate=16000 chunk_ms=20 frames_per_chunk=320
+[21:32:27] [spk] using default output device: index=3, name=扬声器 (Realtek(R) Audio), max_output_channels=2, default_rate=44100
+[21:32:27] [aec] output_latency_adjust base_delay_ms=180 output_latency_ms=128 effective_delay_ms=308 dynamic_delay_ms=308
+[21:32:27] [aec] enabled engine=webrtc effective_engine=webrtc webrtc_backend=aec_audio_processing.AudioProcessor webrtc_post_filter=False ref_delay_ms=180 ref_buffer_ms=500 ref_hold_ms=250 auto_delay=True auto_delay_min_score=0.22 search_span_ms=260 search_step_ms=5 auto_delay_interval_chunks=4 echo_gate=False tts_warmup_mute_ms=80 tts_ref_wait_mute_ms=1200 tts_stale_ms=900 preserve_barge_in=True barge_in_warmup_rms=900.0 tts_gate_sim=0.66 tts_gate_clean_sim=0.5 tts_gate_rms_ratio=1.25 tts_half_duplex=False tts_barge_in_rms=1200.0 tts_barge_in_ratio=1.65 tts_barge_in_sim_max=0.55 tts_barge_in_chunks=2 tts_barge_in_interrupt=False near_end_protect_ratio=1.22 use_output_latency=True output_latency_ms=128 sample_rate=16000 playback_sample_rate=24000
+[21:32:27] [server/whoami] {"ok": true, "host": "MaoZedong-LongLive", "pid": 27596, "revision": "", "pod_name": "", "function_name": "", "function_id": "", "client": "127.0.0.1", "log_dir": "\\mnt\\tos\\logs", "log_file": "\\mnt\\tos\\logs\\run_20260309_211532_27596.log", "ts": 1773063147.9830933, "status_code": 200}
+[21:32:28] [billing] started source=client_event trigger=开始对话 started_at=1773063148.0225222
+[21:32:28] [ws] connected(control): ws://127.0.0.1:8080/ws/realtime/control?session_id=mic_60c1772dfa3d&format=pcm
+[21:32:28] [ws] connected(media):   ws://127.0.0.1:8080/ws/realtime/media?session_id=mic_60c1772dfa3d&format=pcm
+[21:32:28] [ws/event] {'event': 'waiting_peer', 'session_id': 'mic_60c1772dfa3d', 'channel': 'control', 'message': 'waiting for media/control channel'}
+[21:32:28] [ws/control] start_dialog sent text=开始对话
+[21:32:28] [mic/monitor] first_chunk chunk_bytes=640 rms=0
+[21:32:28] [ws/send] chunk=0 bytes=640
+[21:32:28] [send] chunk=0 done in 0ms
+[21:32:28] [ws/ready] session_id=mic_60c1772dfa3d
+[21:32:28] [ws/control] set_system_prompt sent trigger=ready chars=0 prompt_context=on prompt_context_keys=customer_profile,system_instruction,workflow_text workflow_json=off nodes=0 edges=0
+[21:32:28] [asr/monitor] ready session_id=mic_60c1772dfa3d sample_rate=16000
+[21:32:28] [billing/start] {"session_id": "mic_60c1772dfa3d", "source": "client_event", "trigger_text": "开始对话", "started_at": 1773063148.0225222}
+[21:32:28] mode=start_dialog
+  system: 【系统指令】 1、你是银行电话催收业务的专家，你的任务是结合用户画像和催收流程以及对话的上文为催收员生成下一步电话催收话术。 2、请主动发起通话并推进沟通 3、话术要口语化表达，说话要简短，不要长篇大论 4、如需提问，每次不得超过两个问题。可以通过多轮对话把问题搞清楚，不能一股脑一次提一堆问题 5、生成的话术是催收员实际要说的话，不能带任何注释和说明 6、如果有需要核实的问题，不能在线核实（所有的核实工作需要线下完成），此时需要输出结束当前对话的话术。 【客户画像】 【客户画像】 催收员工号: 83441102, 催收员姓名: 张伟, 客户姓名: 李曼丽, 客户性别: 女, 客户年龄: 38岁, 客户尊称: 李女士, 客户所在城市: 武汉, 客户地址: 武昌区东湖景园2号楼1单元501室, 客户账户编号: C2251570899, 客户身份证后四位: 1278, 银行全称: 建设银行, 贷款产品名称: 快享经营贷, 贷款时间: 10月5日, 贷款金额: 18900元, 当前逾期天数: 6天, 当前逾期开始日期: 1月28日, 是否首逾: 是, 总欠款金额: 7620元, 本期应还款额: 3850元, 本金金额: 3520元, 利息金额: 305元, 罚息金额: 25元, 银行要求本期一次性结清日期: 今天, 银行要求本期一次性结清时间: 16, 最近一次还款金额: 5210元, 最近一次还款日期: 1月2日, 最近一次还款方式: 柜台存现, 最近一次延期天数: NA, 最近一次延期是否按时到账: 无历史延期, 客户风险分级: 低, 约定还款方式: 支付宝还款, 扣款银行卡后四位: 8731, 对话基准日期: 2月3日, 对话基准日期(周单位): 星期二, 对话基准时间: 10点, 【下一步工作流程任务】 **客户类型分析：** 该客户属于“因银行方流程/技术问题引发强烈不满，但仍有还款意愿和配合度”的类型。客户情绪激动但多次承诺配合，不属于恶意拖欠或欺骗，策略应以解决问题为导向，态度专业、耐心但需坚定推进。 **下一步对话策略建议（按优先级排序）：** 1. **首要核心：核实还款事实。** 首先致电，开场再次为之前的沟通不畅致歉，随后直接、明确询问客户具体通过哪个渠道（如：具体银行APP、网银、柜台）进行的还款操作，以便我方立即在内部系统进行针对性核查。 2. **解决凭证问题，提供明确替代方案。** 告知客户经查仍未收到其彩信凭证，主动提供除彩信外的其他凭证发送方式（如：添加工作微信发送、发送至指定邮箱），并询问其是否愿意尝试，同时告知我方技术部门也在同步核查短信接收通道。 3. **设定明确时限，进行闭环管理。** 无论以上哪项先有结果，都需与客户约定一个确切的时间点（如：1小时后）进行主动回访，告知核查进展或结果，避免让客户陷入被动等待，从而再次引发不满。
+  system: 请先输出一轮通用电话开场白：简短自我介绍、说明来电目的，并在结尾确认对方是否方便通话。
+  user: 开始对话
+----------------------------------------
+[21:32:28] [ws/command] command=set_system_prompt action=updated terminate_source= terminate_reason= terminate_trace_id= workflow_applied=None workflow_nodes=None workflow_edges=None
+[21:32:28] [nlp/prompt] mode=start_dialog text=system: 【系统指令】 1、你是银行电话催收业务的专家，你的任务是结合用户画像和催收流程以及对话的上文为催收员生成下一步电话催收话术。 2、请主动发起通话并推进沟通 3、话术要口语化表达，说话要简短，不要长篇大论 4、如需提问，每次不得超过两个问题。可以通过多轮对话把问题搞清楚，不能一股脑一次提一堆问题 5、生成的话术是催收员实际要说的话，不能带任何注释和说明 6、如果有需要核实的问题，不能在线核实（所有的核实工作需要线下完成），此时需要输出结束当前对话的话术。 【客户画像】 【客户画像】 催收员工号: 83441102, 催收员姓名: 张伟, 客户姓名: 李曼丽, 客户性别: 女, 客户年龄: 38岁, 客户尊称: 李女士, 客户所在城市: 武汉, 客户地址: 武昌区东湖景园2号楼1单元501室, 客户账户编号: C2251570899, 客户身份证后四位: 1278, 银行全称: 建设银行, 贷款产品名称: 快享经营贷, 贷款时间: 10月5日, 贷款金额: 18900元, 当前逾期天数: 6天, 当前逾期开始日期: 1月28日, 是否首逾: 是, 总欠款金额: 7620元, 本期应还款额: 3850元, 本金金额: 3520元, 利息金额: 305元, 罚息金额: 25元, 银行要求本期一次性结清日期: 今天, 银行要求本期一次性结清时间: 16, 最近一次还款金额: 5210元, 最近一次还款日期: 1月2日, 最近一次还款方式: 柜台存现, 最近一次延期天数: NA, 最近一次延期是否按时到账: 无历史延期, 客户风险分级: 低, 约定还款方式: 支付宝还款, 扣款银行卡后四位: 8731, 对话基准日期: 2月3日, 对话基准日期(周单位): 星期二, 对话基准时间: 10点, 【下一步工作流程任务】 **客户类型分析：** 该客户属于“因银行方流程/技术问题引发强烈不满，但仍有还款意愿和配合度”的类型。客户情绪激动但多次承诺配合，不属于恶意拖欠或欺骗，策略应以解决问题为导向，态度专业、耐心但需坚定推进。 **下一步对话策略建议（按优先级排序）：** 1. **首要核心：核实还款事实。** 首先致电，开场再次为之前的沟通不畅致歉，随后直接、明确询问客户具体通过哪个渠道（如：具体银行APP、网银、柜台）进行的还款操作，以便我方立即在内部系统进行针对性核查。 2. **解决凭证问题，提供明确替代方案。** 告知客户经查仍未收到其彩信凭证，主动提供除彩信外的其他凭证发送方式（如：添加工作微信发送、发送至指定邮箱），并询问其是否愿意尝试，同时告知我方技术部门也在同步核查短信接收通道。 3. **设定明确时限，进行闭环管理。** 无论以上哪项先有结果，都需与客户约定一个确切的时间点（如：1小时后）进行主动回访，告知核查进展或结果，避免让客户陷入被动等待，从而再次引发不满。 || system: 请先输出一轮通用电话开场白：简短自我介绍、说明来电目的，并在结尾确认对方是否方便通话。 || user: 开始对话
+[21:32:28] [tts] start text=
+[21:32:28] [ws/send] chunk=20 bytes=640
+[21:32:28] [send] chunk=20 done in 0ms
+[21:32:29] [ws/send] chunk=40 bytes=640
+[21:32:29] [send] chunk=40 done in 0ms
+[21:32:29] [tts/segment] seq=1 text=喂，李女士您好，
+[21:32:29] [ws/send] chunk=60 bytes=640
+[21:32:29] [send] chunk=60 done in 0ms
+[21:32:29] [tts/segment] seq=2 text=我是建行催收员张伟
+[21:32:29] [tts/segment] seq=3 text=，工号83441
+[21:32:29] [tts/segment] seq=4 text=102，今天来电
+[21:32:29] [ws/send] chunk=80 bytes=640
+[21:32:29] [send] chunk=80 done in 0ms
+[21:32:30] [mic/monitor] captured_chunks=100 last_chunk_bytes=640 rms=0
+[21:32:30] [ws/tts] first_frame_bytes=1920
+[21:32:30] [latency] e2e_ms=0  (upload+backend+download)
+[21:32:30] [latency/backend] queue_wait_ms=None nlp_first_token_ms=1281.0 tts_first_audio_ms=1016.0
+[21:32:30] [tts/segment] seq=5 text=是跟您沟通快享经营
+[21:32:30] [tts/segment] seq=6 text=贷的逾期还款事宜
+[21:32:30] [ws/send] chunk=100 bytes=640
+[21:32:30] [send] chunk=100 done in 0ms
+[21:32:30] [tts/segment] seq=7 text=，请问您现在方便
+[21:32:30] [tts/segment] seq=8 text=通话吗？
+[21:32:30] [ws/send] chunk=120 bytes=640
+[21:32:30] [send] chunk=120 done in 2ms
+[21:32:31] [aec] auto_delay best_ms=248 current_ms=296 score=0.565
+[21:32:31] [ws/send] chunk=140 bytes=640
+[21:32:31] [send] chunk=140 done in 0ms
+[21:32:31] [ws/send] chunk=160 bytes=640
+[21:32:31] [send] chunk=160 done in 0ms
+[21:32:32] [ws/send] chunk=180 bytes=640
+[21:32:32] [send] chunk=180 done in 0ms
+[21:32:32] [ws/tts] frames=50, total_audio_bytes=90974
+[21:32:32] [mic/monitor] captured_chunks=200 last_chunk_bytes=640 rms=0
+[21:32:32] [ws/send] chunk=200 bytes=640
+[21:32:32] [send] chunk=200 done in 0ms
+[21:32:33] [ws/send] chunk=220 bytes=640
+[21:32:33] [send] chunk=220 done in 0ms
+[21:32:33] [ws/send] chunk=240 bytes=640
+[21:32:33] [billing] 本次通话费用：¥0.02579，分项(LLM=¥0.00079，TTS=¥0.01860，ASR=¥0.00640)，token 总计=921（输入=875，输出=46，缓存输入=0，思维=0），计费时长=5.7s
+[21:32:33] [billing] 模型费用：1.6-flash=¥0.00000(token=0)，1.8=¥0.00079(token=921)，TTS=¥0.01860(chars=62)，ASR=¥0.00640(audio_s=5.120)
+[21:32:33] [billing/model] model=doubao-seed-1.6-flash calls=0 total_tokens=0 prompt=0 completion=0 cached=0 cost=¥0.00000
+[21:32:33] [billing/model] model=doubao-seed-1-8-251228 calls=1 total_tokens=921 prompt=875 completion=46 cached=0 cost=¥0.00079
+[21:32:33] [ws/terminate] command=end_dialog action=terminate_session source=asr_commit by=asr reason=voice_command_end_dialog trace_id=66ceeca83689 trigger_text=结束对话。
+[21:32:33] [send] chunk=240 done in 0ms
+[21:32:33] [billing/result] {"event": "billing_result", "session_id": "mic_60c1772dfa3d", "currency": "CNY", "started": true, "started_at": 1773063148.0225222, "ended_at": 1773063153.7044637, "duration_seconds": 5.682, "start_source": "client_event", "start_text": "开始对话", "end_source": "asr_commit", "end_reason": "voice_command_end_dialog", "trigger_text": "结束对话。", "usage": {"total_tokens": 921, "prompt_tokens": 875, "completion_tokens": 46, "cached_tokens": 0, "reasoning_tokens": 0}, "cost": {"llm_total": 0.000792, "tts_total": 0.0186, "asr_total": 0.0064, "total": 0.025792}, "tts": {"usage": {"characters": 62}, "price": {"per_10k_characters": 3.0}, "cost": {"total": 0.0186}}, "asr": {"usage": {"audio_bytes": 163840, "audio_seconds": 5.12, "audio_hours": 0.00142222}, "price": {"per_hour": 4.5}, "cost": {"total": 0.0064}}, "models": [{"model": "doubao-seed-1.6-flash", "model_key": "doubao-seed-1.6-flash", "pricing_rule": "doubao-seed-1.6-flash", "calls": 0, "usage": {"total_tokens": 0, "prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0, "reasoning_tokens": 0}, "cost": {"input": 0.0, "output": 0.0, "cache_input": 0.0, "cache_storage": 0.0, "total": 0.0}, "price": {"input_per_million": 0.0, "output_per_million": 0.0, "cache_input_per_million": 0.03, "cache_storage_per_million_token_hour": 0.017}}, {"model": "doubao-seed-1-8-251228", "model_key": "doubao-seed-1.8", "pricing_rule": "doubao-seed-1.8", "pricing_condition": "input_[0,32k]_output_[0,0.2k]", "pricing_warning": "", "calls": 1, "usage": {"total_tokens": 921, "prompt_tokens": 875, "completion_tokens": 46, "cached_tokens": 0, "reasoning_tokens": 0}, "cost": {"input": 0.0007, "output": 9.2e-05, "cache_input": 0.0, "cache_storage": 0.0, "total": 0.000792}, "price": {"input_per_million": 0.8, "output_per_million": 2.0, "cache_input_per_million": 0.16, "cache_storage_per_million_token_hour": 0.017}}], "model_costs": {"doubao-seed-1.6-flash": {"cost_total": 0.0, "total_tokens": 0, "prompt_tokens": 0, "completion_tokens": 0}, "doubao-seed-1.8": {"cost_total": 0.000792, "total_tokens": 921, "prompt_tokens": 875, "completion_tokens": 46}}, "pricing": {"note": "LLM 按 doubao-seed-1.8 与 doubao-seed-1.6-flash 文档估算；TTS 按 3元/万字符（按提交到TTS的文本字符数估算）；ASR按实际传输PCM时长折算4.5元/小时。"}}
+[21:32:33] [ws/terminate] {"command": "end_dialog", "action": "terminate_session", "terminate_source": "asr_commit", "terminate_reason": "voice_command_end_dialog", "terminate_trace_id": "66ceeca83689", "terminate_by": "asr", "trigger_text": "结束对话。", "server_ts": 1773063153.704982}
+[21:32:33] [ws/command] command=end_dialog action=terminate_session terminate_source=asr_commit terminate_reason=voice_command_end_dialog terminate_trace_id=66ceeca83689 workflow_applied=None workflow_nodes=None workflow_edges=None
+[21:32:33] [aec] auto_delay best_ms=360 current_ms=336 score=0.221
+[21:32:33] [ws/send] chunk=260 bytes=640
+[21:32:34] [ws/disconnect] channel=control reason=server_disconnected cause=terminate_session source=asr_commit terminate_reason=voice_command_end_dialog trace_id=66ceeca83689
+[21:32:33] [send] chunk=260 done in 0ms
+[21:32:34] [aec] output_latency_adjust base_delay_ms=180 output_latency_ms=128 effective_delay_ms=308 dynamic_delay_ms=284
+[21:32:34] [tts] end audio_bytes=262788 interrupted=True
+[21:32:34] [ws/disconnect] {"channel": "control", "reason": "server_disconnected", "cause": "terminate_session", "command": "end_dialog", "action": "terminate_session", "terminate_source": "asr_commit", "terminate_reason": "voice_command_end_dialog", "terminate_trace_id": "66ceeca83689", "terminate_by": "asr", "trigger_text": "结束对话。"}
+[21:32:34] [ws/control] end_dialog send failed: socket is already closed.
+[21:32:38] [ASR_MONITOR] mic_state source=main state=closed reason=process_exit
+[21:32:38] process exit: return_code=None

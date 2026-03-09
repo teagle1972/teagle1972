@@ -1,0 +1,13 @@
+{
+  "strict_webrtc_required": true,
+  "aec_profile": "asr_first",
+  "audio_tuning": {
+    "chunk_ms": "20",
+    "queue_size": "128",
+    "aec_ref_delay_ms": "180",
+    "aec_max_suppress_gain": "2.2",
+    "aec_near_end_protect_ratio": "1.22",
+    "aec_tts_warmup_mute_ms": "80",
+    "aec_tts_ref_wait_mute_ms": "1200"
+  }
+}

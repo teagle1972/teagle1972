@@ -1,0 +1,72 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Realtime Voice Web Client</title>
+  <link rel="stylesheet" href="/web/style.css" />
+</head>
+<body>
+  <main class="page">
+    <header class="card">
+      <h1>Realtime Voice Web Client</h1>
+      <p>双通道 WS 客户端（control/media）。先连接，再开麦。</p>
+    </header>
+
+    <section class="card controls">
+      <div class="row">
+        <label>服务地址</label>
+        <input id="serverBase" value="" placeholder="留空默认当前站点，如 ws://127.0.0.1:8080" />
+      </div>
+      <div class="row">
+        <label>Session ID</label>
+        <input id="sessionId" value="" />
+      </div>
+      <div class="buttons">
+        <button id="btnConnect">连接</button>
+        <button id="btnDisconnect">断开</button>
+        <button id="btnMicStart">开麦</button>
+        <button id="btnMicStop">停麦</button>
+        <button id="btnStartDialog">start_dialog</button>
+        <button id="btnEndDialog">end_dialog</button>
+      </div>
+      <div class="status" id="statusLine">状态: 未连接</div>
+    </section>
+
+    <section class="card">
+      <div class="row">
+        <label>系统提示词</label>
+        <textarea id="systemPrompt" rows="4" placeholder="可选，发送到 set_system_prompt"></textarea>
+      </div>
+      <div class="buttons">
+        <button id="btnSetPrompt">设置提示词</button>
+        <button id="btnClearPrompt">清空提示词</button>
+      </div>
+    </section>
+
+    <section class="grid2">
+      <article class="card">
+        <h2>ASR</h2>
+        <pre id="asrBox" class="console"></pre>
+      </article>
+      <article class="card">
+        <h2>TTS / Assistant</h2>
+        <pre id="ttsBox" class="console"></pre>
+      </article>
+    </section>
+
+    <section class="grid2">
+      <article class="card">
+        <h2>Intent</h2>
+        <pre id="intentBox" class="console"></pre>
+      </article>
+      <article class="card">
+        <h2>Log</h2>
+        <pre id="logBox" class="console"></pre>
+      </article>
+    </section>
+  </main>
+
+  <script src="/web/app.js"></script>
+</body>
+</html>

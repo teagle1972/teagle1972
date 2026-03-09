@@ -1,0 +1,9 @@
+# UI itself uses Python stdlib.
+# But default Start command launches ../mic_chunk_client.py,
+# which needs these dependencies for microphone + websocket streaming.
+requests>=2.31.0
+websocket-client>=1.8.0
+PyAudio>=0.2.13
+# Optional WebRTC APM backend (for --aec-engine webrtc)
+webrtc-apm>=0.1.6; python_version >= "3.11"
+aec-audio-processing>=1.0.0; python_version >= "3.11"
