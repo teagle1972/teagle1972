@@ -1,0 +1,29 @@
+# Logs
+*.log
+logs/
+**/logs/
+
+# Audio artifacts
+*.wav
+*.mp3
+*.pcm
+*.ogg
+*.opus
+*.flac
+*.m4a
+audio_chunks/
+**/audio_chunks/
+
+# Caches / runtime temp
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+tmp/
+temp/
+
