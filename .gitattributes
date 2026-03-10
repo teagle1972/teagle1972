@@ -1,0 +1,17 @@
+* text=auto
+
+# Force LF for source/content text files.
+*.txt text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Treat binary assets as binary (no EOL normalization).
+*.png -text
+*.jpg -text
+*.jpeg -text
+*.gif -text
+*.webp -text
+*.wav -text
