@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import shutil
 import threading
@@ -13,14 +13,14 @@ from tkinter.scrolledtext import ScrolledText
 def _build_llm_customer_profile_prompt(reference_profile: str) -> str:
     return "\n\n".join(
         [
-            "你是电话业务场景的客户资料生成助手。",
-            "请参考给定客户画像，生成一个可直接用于外呼的新客户资料。",
+            "你是一个用于外呼场景的客户资料生成助手。",
+            "请参考给定的客户资料，生成一份可直接用于外呼的新客户资料。",
             "输出要求：",
-            "1. 仅输出客户资料正文，不要解释，不要 Markdown。",
-            "2. 每行一个字段，格式为“字段名: 字段值”。",
-            "3. 必须包含“客户姓名”字段。",
-            "4. 字段尽量完整且可执行，保持真实、具体。",
-            "【参考客户画像】",
+            "1. 只输出客户资料正文，不要解释说明，不要使用 Markdown。",
+            "2. 每行一个字段，格式：字段名: 值。",
+            "3. 必须包含客户姓名字段。",
+            "4. 字段内容完整、具体、有实际意义。",
+            "【参考客户资料】",
             reference_profile.strip(),
         ]
     )
@@ -28,7 +28,7 @@ def _build_llm_customer_profile_prompt(reference_profile: str) -> str:
 
 def _open_customer_generation_dialog(app) -> dict[str, object]:
     win = tk.Toplevel(app)
-    win.title("新建客户生成中")
+    win.title("新建客户")
     win.configure(bg="#f3f7fc")
     win.update_idletasks()
     sw = win.winfo_screenwidth()
@@ -142,7 +142,7 @@ def save_new_customer_record(app, profile_text: str, strategy_text: str) -> Path
 
 def create_new_customer_record_from_jsonl(app, default_workflow: str) -> None:
     if app._llm_submit_running:
-        messagebox.showinfo("Submitting", "LLM request is running.")
+        messagebox.showinfo("正在提交", "LLM 请求正在运行中。")
         return
 
     profile_source_widget = app.conversation_customer_profile_text
@@ -152,7 +152,7 @@ def create_new_customer_record_from_jsonl(app, default_workflow: str) -> None:
     )
     reference_profile = str(reference_profile or "").strip()
     if not reference_profile:
-        messagebox.showwarning("客户画像为空", "请先在“对话-工作流程-客户画像”填写内容。")
+        messagebox.showwarning("客户资料不能为空", "请先填写客户资料后再生成。")
         return
 
     strategy_text = (
@@ -160,7 +160,7 @@ def create_new_customer_record_from_jsonl(app, default_workflow: str) -> None:
     )
     strategy_text = str(strategy_text or "").strip()
     if not strategy_text:
-        messagebox.showwarning("初始策略模板为空", "请先在【对话-工作流程-初始策略模板】填写内容，再新建客户。")
+        messagebox.showwarning("策略模板不能为空", "请先填写初始策略模板后再生成。")
         return
 
     llm_prompt = _build_llm_customer_profile_prompt(reference_profile)
@@ -216,7 +216,7 @@ def create_new_customer_record_from_jsonl(app, default_workflow: str) -> None:
         profile_text = str(result_box.get("value", "") or "").strip()
         if not profile_text:
             _append_customer_generation_dialog_text(dialog, "[LLM_ERROR] 结果为空\n")
-            messagebox.showwarning("新建客户失败", "LLM 返回为空，请重试。")
+            messagebox.showwarning("新建客户失败", "LLM 返回内容为空，请重试。")
             return
 
         _append_customer_generation_dialog_text(
@@ -316,10 +316,23 @@ def save_dialog_summary_record(
         total_cost = 0.0
     call_cost_text = f"¥{total_cost:.5f}"
 
+    duration_seconds = 0.0
+    try:
+        duration_seconds = float(getattr(app, "_last_billing_duration_seconds", 0.0) or 0.0)
+    except Exception:
+        duration_seconds = 0.0
+    price_per_minute = 0.0
+    if duration_seconds > 0:
+        price_per_minute = (total_cost * 60.0) / duration_seconds
+    duration_text = f"{duration_seconds:.1f}s" if duration_seconds > 0 else ""
+    price_per_minute_text = f"{price_per_minute:.5f}" if duration_seconds > 0 else ""
     records.append(
         {
             "call_time": now_text,
             "call_cost": call_cost_text,
+            "billing_duration": duration_text,
+            "billing_duration_seconds": round(duration_seconds, 3) if duration_seconds > 0 else "",
+            "price_per_minute": price_per_minute_text,
             "call_record": conversation_text,
             "summary": (summary_content or "").strip(),
             "commitments": (commitments_content or "").strip(),
@@ -335,3 +348,5 @@ def save_dialog_summary_record(
         records=records,
     )
     return path
+
+

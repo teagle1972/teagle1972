@@ -125,6 +125,26 @@ def clear_views(app) -> None:
     app._clear_text(app.intent_text)
     app._clear_text(app.intent_system_text)
     app._clear_text(app.intent_prompt_text)
+    billing_widget = getattr(app, "dialog_billing_text", None)
+    if billing_widget is not None:
+        try:
+            app._clear_text(billing_widget)
+        except Exception:
+            pass
+    billing_table = getattr(app, "dialog_billing_table", None)
+    if billing_table is not None:
+        try:
+            for iid in billing_table.get_children():
+                billing_table.delete(iid)
+        except Exception:
+            pass
+    intent_table = getattr(app, "dialog_intent_table", None)
+    if intent_table is not None:
+        try:
+            for iid in intent_table.get_children():
+                intent_table.delete(iid)
+        except Exception:
+            pass
     app._set_text_content(app.dialog_conversation_text, "")
     app.dialog_conversation_text.configure(state="normal")
     app._clear_text(app.dialog_intent_text)
@@ -357,6 +377,12 @@ def handle_event(
         if prev_state != "stopped":
             _append_dialog_session_marker(app, "end", event.ts)
         app.state_var.set("stopped")
+        close_call_overlay = getattr(app, "_close_customer_call_overlay", None)
+        if callable(close_call_overlay):
+            try:
+                close_call_overlay()
+            except Exception:
+                pass
         app._sync_conversation_profile_status()
         code = event.payload.get("return_code")
         app._set_microphone_open("main", False, reason=event.kind)
@@ -392,6 +418,12 @@ def handle_event(
             app._media_endpoint = endpoint
         app.endpoint_var.set(f"control={app._control_endpoint or '-'} | media={app._media_endpoint or '-'}")
         app._sync_conversation_profile_status()
+        on_overlay_ws_connected = getattr(app, "_on_customer_call_overlay_ws_connected", None)
+        if callable(on_overlay_ws_connected):
+            try:
+                on_overlay_ws_connected()
+            except Exception:
+                pass
         return
 
     if event.kind == "ws_connected_single":
@@ -400,6 +432,21 @@ def handle_event(
         app._single_endpoint = str(event.payload.get("endpoint", ""))
         app.endpoint_var.set(app._single_endpoint or "-")
         app._sync_conversation_profile_status()
+        on_overlay_ws_connected = getattr(app, "_on_customer_call_overlay_ws_connected", None)
+        if callable(on_overlay_ws_connected):
+            try:
+                on_overlay_ws_connected()
+            except Exception:
+                pass
+        return
+
+    if event.kind == "tts_first_frame":
+        on_overlay_tts_first_frame = getattr(app, "_on_customer_call_overlay_tts_first_frame", None)
+        if callable(on_overlay_tts_first_frame):
+            try:
+                on_overlay_tts_first_frame()
+            except Exception:
+                pass
         return
 
     if event.kind == "audio_sent":
@@ -480,11 +527,46 @@ def handle_event(
             f"TTS=¥{tts_cost:.5f}(chars={tts_characters})，"
             f"ASR=¥{asr_cost:.5f}(audio_s={asr_audio_seconds:.3f})"
         )
+        price_per_minute = 0.0
+        if duration_seconds > 0:
+            price_per_minute = (total_cost * 60.0) / duration_seconds
         app._last_billing_total_cost = round(total_cost, 5)
-        for _ in range(3):
-            app._append_dialog_conversation_line(role="meta", text=" ")
-        _append_dialog_turn(app, role="system", ts_text=ts_text, text=summary)
-        _append_dialog_turn(app, role="system", ts_text=ts_text, text=per_model_summary)
+        app._last_billing_duration_seconds = round(duration_seconds, 3)
+        app._last_billing_price_per_minute = round(price_per_minute, 5)
+        billing_rows = [
+            ("本次通话费用", f"¥{total_cost:.5f}"),
+            ("价格/分钟", f"¥{price_per_minute:.5f}" if duration_seconds > 0 else "-"),
+            ("计费时长", f"{duration_seconds:.1f}s"),
+            ("TTS", f"¥{tts_cost:.5f} (chars={tts_characters})"),
+            ("ASR", f"¥{asr_cost:.5f} (audio_s={asr_audio_seconds:.3f})"),
+            ("LLM", f"¥{llm_cost:.5f}"),
+            ("token 总计", str(total_tokens)),
+            ("1.6-flash", f"¥{_to_float(cost_16.get('cost_total')):.5f} (token={_to_int(cost_16.get('total_tokens'))})"),
+            ("1.8", f"¥{_to_float(cost_18.get('cost_total')):.5f} (token={_to_int(cost_18.get('total_tokens'))})"),
+            ("输入", str(prompt_tokens)),
+            ("输出", str(completion_tokens)),
+            ("缓存输入", str(cached_tokens)),
+            ("思维", str(reasoning_tokens)),
+        ]
+        billing_widget = getattr(app, "dialog_billing_text", None)
+        if billing_widget is not None:
+            try:
+                app._set_text_content(
+                    billing_widget,
+                    "\n".join([f"{k}: {v}" for k, v in billing_rows]),
+                )
+            except Exception:
+                pass
+        billing_table = getattr(app, "dialog_billing_table", None)
+        if billing_table is not None:
+            try:
+                for iid in billing_table.get_children():
+                    billing_table.delete(iid)
+                for idx, (item_name, value_text) in enumerate(billing_rows, start=1):
+                    tag = "billing_even" if (idx % 2 == 0) else "billing_odd"
+                    billing_table.insert("", "end", values=(item_name, value_text), tags=(tag,))
+            except Exception:
+                pass
         app._append_tts_line(role="meta", text=f"[{ts_text}] {summary}")
         app._append_tts_line(role="meta", text=f"[{ts_text}] {per_model_summary}")
         app._append_line(app.log_text, f"[{ts_text}] [billing] {summary}")
@@ -675,21 +757,15 @@ def handle_event(
         normalized = app._sanitize_inline_text(text)
         if app._tts_stream_active and normalized:
             pending_stream_text = app._sanitize_inline_text(str(getattr(app, "_current_agent_stream_text", "") or ""))
-            # Some backends print long assistant text across multiple lines, while only
-            # the first line carries "[assistant]". In that case, replacing stream text
-            # with the shorter assistant line causes visible truncation in UI.
-            should_replace = True
-            if pending_stream_text:
-                if normalized == pending_stream_text:
-                    should_replace = False
-                elif pending_stream_text.startswith(normalized) and (len(normalized) + 8 < len(pending_stream_text)):
-                    should_replace = False
-            if should_replace:
-                app._replace_tts_stream_text(normalized)
-                app._replace_dialog_agent_stream_text(normalized)
+            # Keep streamed TTS as source of truth. Do not overwrite live text with
+            # parsed "[assistant]" logs, which may be incomplete or out-of-order.
+            if (not pending_stream_text) and normalized:
+                app._append_tts_stream_text(normalized)
+                app._append_dialog_agent_stream_text(normalized)
+                pending_stream_text = normalized
             app._close_tts_stream_line()
             app._close_dialog_agent_stream_line()
-            final_agent_text = normalized if should_replace else (pending_stream_text or normalized)
+            final_agent_text = pending_stream_text or normalized
             _append_session_dialog_line(app, role="agent", text=final_agent_text)
             app._current_agent_stream_text = ""
         elif normalized:

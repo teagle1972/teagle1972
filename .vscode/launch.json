@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: client_mic_chunk_ui_v1 (Integrated Terminal)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "d:\\anaconda3\\python.exe",
+      "program": "${workspaceFolder}\\client_mic_chunk\\client_mic_chunk_ui_v1\\main.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false,
+      "subProcess": false,
+      "redirectOutput": true,
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "Python: client_mic_chunk_ui_v1 (External Terminal)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "d:\\anaconda3\\python.exe",
+      "program": "${workspaceFolder}\\client_mic_chunk\\client_mic_chunk_ui_v1\\main.py",
+      "console": "externalTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false,
+      "subProcess": false
+    }
+  ]
+}

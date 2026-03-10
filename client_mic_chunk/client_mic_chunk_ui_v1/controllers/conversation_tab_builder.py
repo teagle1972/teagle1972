@@ -48,6 +48,18 @@ def build_conversation_tab(
         font=("微软雅黑", 9, "bold"),
         padding=(10, heading_padding_y),
     )
+    style.configure("ConversationIntent.Treeview", font=conversation_font, rowheight=max(24, profile_rowheight))
+    style.configure(
+        "ConversationIntent.Treeview.Heading",
+        font=("微软雅黑", 9, "bold"),
+        padding=(8, 6),
+    )
+    style.configure("ConversationBilling.Treeview", font=conversation_font, rowheight=max(24, profile_rowheight))
+    style.configure(
+        "ConversationBilling.Treeview.Heading",
+        font=("微软雅黑", 9, "bold"),
+        padding=(8, 6),
+    )
     self.conversation_command_var = tk.StringVar(value=(command_value or "").strip())
     fallback_env = (self.server_env_var.get() if isinstance(self.server_env_var, tk.StringVar) else "local")
     env_text = (env_value or fallback_env or "").strip().lower()
@@ -275,40 +287,41 @@ def build_conversation_tab(
     dialog_conversation_text.tag_configure(
         "dialog_customer_history",
         foreground="#7898c0",
+        background="#f3f4f6",
         justify="left",
         lmargin1=8,
         lmargin2=8,
         rmargin=130,
         spacing1=3,
         spacing3=3,
-        background="#f3f4f6",
     )
     dialog_conversation_text.tag_configure(
         "dialog_agent_history",
         foreground="#9c7850",
+        background="#f3f4f6",
         justify="left",
         lmargin1=130,
         lmargin2=130,
         rmargin=8,
         spacing1=3,
         spacing3=3,
-        background="#f3f4f6",
     )
     dialog_conversation_text.tag_configure(
         "dialog_meta_history",
         foreground="#9ca3af",
+        background="#f3f4f6",
         justify="left",
         lmargin1=8,
         lmargin2=8,
         rmargin=8,
         spacing1=3,
         spacing3=3,
-        background="#f3f4f6",
     )
     dialog_conversation_text.tag_configure("dialog_intent_inline", foreground="#dc2626")
     dialog_conversation_text.tag_configure(
         "dialog_session_sep",
         foreground="#f97316",
+        background="#e5e7eb",
         justify="center",
         lmargin1=0,
         lmargin2=0,
@@ -319,6 +332,7 @@ def build_conversation_tab(
     dialog_conversation_text.tag_configure(
         "dialog_session_marker",
         foreground="#000000",
+        background="#e5e7eb",
         justify="center",
         lmargin1=0,
         lmargin2=0,
@@ -328,8 +342,89 @@ def build_conversation_tab(
     )
 
     dialog_intent_box = ttk.LabelFrame(profile_bottom_panes, text="客户意图", style="Section.TLabelframe", padding=0)
-    dialog_intent_text = _new_scrolled(dialog_intent_box, state="disabled")
-    dialog_intent_text.pack(fill=BOTH, expand=True)
+    dialog_intent_container = ttk.Frame(dialog_intent_box)
+    dialog_intent_container.pack(fill=BOTH, expand=True)
+    dialog_intent_container.rowconfigure(0, weight=3)
+    dialog_intent_container.rowconfigure(1, weight=2)
+    dialog_intent_container.columnconfigure(0, weight=1)
+
+    dialog_intent_table_wrap = ttk.Frame(dialog_intent_container)
+    dialog_intent_table_wrap.grid(row=0, column=0, sticky="nsew")
+    dialog_intent_table_wrap.rowconfigure(0, weight=1)
+    dialog_intent_table_wrap.columnconfigure(0, weight=1)
+    dialog_intent_table = ttk.Treeview(
+        dialog_intent_table_wrap,
+        columns=("idx", "intent"),
+        show="headings",
+        style="ConversationIntent.Treeview",
+    )
+    dialog_intent_table.heading("idx", text="#")
+    dialog_intent_table.heading("intent", text="客户意图")
+    dialog_intent_table.column("idx", width=44, minwidth=40, stretch=False, anchor="center")
+    dialog_intent_table.column("intent", width=240, minwidth=180, stretch=True, anchor="w")
+    dialog_intent_scroll_y = ttk.Scrollbar(
+        dialog_intent_table_wrap,
+        orient=tk.VERTICAL,
+        command=dialog_intent_table.yview,
+        style="App.Vertical.TScrollbar",
+    )
+    dialog_intent_table.configure(yscrollcommand=dialog_intent_scroll_y.set)
+    dialog_intent_table.grid(row=0, column=0, sticky="nsew")
+    dialog_intent_scroll_y.grid(row=0, column=1, sticky="ns")
+    dialog_intent_table.tag_configure("intent_even", background="#f7f9fc", foreground="#0f1f35")
+    dialog_intent_table.tag_configure("intent_odd", background="#eef3fb", foreground="#0f1f35")
+    dialog_intent_table.tag_configure("intent_empty", background="#f8fafc", foreground="#64748b")
+
+    # Hidden legacy buffer for compatibility with existing snapshot/summary logic.
+    dialog_intent_text = _new_scrolled(dialog_intent_container, state="disabled")
+    dialog_intent_text.grid(row=0, column=0, sticky="nsew")
+    dialog_intent_text.grid_remove()
+
+    dialog_billing_box = ttk.LabelFrame(dialog_intent_container, text="计费信息", style="Section.TLabelframe", padding=0)
+    dialog_billing_box.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
+    dialog_billing_wrap = ttk.Frame(dialog_billing_box)
+    dialog_billing_wrap.pack(fill=BOTH, expand=True)
+    dialog_billing_wrap.rowconfigure(0, weight=1)
+    dialog_billing_wrap.columnconfigure(0, weight=1)
+    dialog_billing_table = ttk.Treeview(
+        dialog_billing_wrap,
+        columns=("item", "value"),
+        show="headings",
+        style="ConversationBilling.Treeview",
+    )
+    dialog_billing_table.heading("item", text="项目")
+    dialog_billing_table.heading("value", text="数值")
+    dialog_billing_table.column("item", width=180, minwidth=120, stretch=True, anchor="w")
+    dialog_billing_table.column("value", width=180, minwidth=120, stretch=True, anchor="w")
+    dialog_billing_scroll_y = ttk.Scrollbar(
+        dialog_billing_wrap,
+        orient=tk.VERTICAL,
+        command=dialog_billing_table.yview,
+        style="App.Vertical.TScrollbar",
+    )
+    dialog_billing_table.configure(yscrollcommand=dialog_billing_scroll_y.set)
+    dialog_billing_table.grid(row=0, column=0, sticky="nsew")
+    dialog_billing_scroll_y.grid(row=0, column=1, sticky="ns")
+    dialog_billing_table.tag_configure("billing_even", background="#f8fafc", foreground="#111827")
+    dialog_billing_table.tag_configure("billing_odd", background="#f1f5f9", foreground="#111827")
+
+    def _resize_billing_table_columns(_event=None) -> None:
+        try:
+            total = int(dialog_billing_table.winfo_width() or 0)
+        except Exception:
+            total = 0
+        if total <= 0:
+            return
+        half = max(120, int(total / 2) - 2)
+        dialog_billing_table.column("item", width=half, minwidth=120, stretch=True)
+        dialog_billing_table.column("value", width=half, minwidth=120, stretch=True)
+
+    dialog_billing_table.bind("<Configure>", _resize_billing_table_columns, add="+")
+
+    # Hidden legacy buffer for compatibility.
+    dialog_billing_text = _new_scrolled(dialog_billing_box, state="disabled")
+    dialog_billing_text.pack(fill=BOTH, expand=False)
+    dialog_billing_text.pack_forget()
     dialog_intent_queue_text = None
     dialog_strategy_text = None
     profile_bottom_panes.add(dialog_conversation_box, weight=3)
@@ -346,7 +441,7 @@ def build_conversation_tab(
             setattr(self, "_profile_bottom_sash_initialized", initialized)
         if (not force_initial) and (pane_key in initialized):
             return
-        first = max(120, int(width * 3 / 5))
+        first = max(120, int(width * 4 / 5))
         try:
             profile_bottom_panes.sashpos(0, first)
         except tk.TclError:
@@ -433,10 +528,7 @@ def build_conversation_tab(
         title="对话总结提示词",
         save_command=self._save_dialog_summary_prompt_from_panel,
     )
-    self._set_text_content(
-        conversation_summary_prompt_text,
-        self._dialog_summary_prompt_template_cache,
-    )
+    self._set_text_content(conversation_summary_prompt_text, "")
 
     conversation_customer_profile_text = _new_workflow_panel(
         workflow_right_panes,
@@ -459,10 +551,7 @@ def build_conversation_tab(
         title="对话策略提示词",
         save_command=self._save_dialog_strategy_prompt_from_panel,
     )
-    self._set_text_content(
-        conversation_strategy_prompt_text,
-        self._dialog_strategy_prompt_template_cache,
-    )
+    self._set_text_content(conversation_strategy_prompt_text, "")
 
     conversation_strategy_history_text = None
     strategy_input_text = None
@@ -512,9 +601,6 @@ def build_conversation_tab(
     call_record_tab.rowconfigure(1, weight=1)
     call_record_toolbar = ttk.Frame(call_record_tab, style="Toolbar.TFrame", padding=(10, 8, 10, 8))
     call_record_toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-    ttk.Button(call_record_toolbar, text="呼叫", command=self._on_call_record_call, style="Primary.TButton").pack(side=LEFT)
-    ttk.Button(call_record_toolbar, text="刷新", command=self._load_call_records_into_list, style="Soft.TButton").pack(side=LEFT, padx=(8, 0))
-    ttk.Label(call_record_toolbar, textvariable=self.call_record_selected_var, background=panel_bg, foreground="#475569").pack(side=RIGHT)
 
     call_record_panel = ttk.Frame(call_record_tab, style="Card.TFrame", padding=0)
     call_record_panel.grid(row=1, column=0, sticky="nsew")
@@ -527,16 +613,20 @@ def build_conversation_tab(
     call_record_list_box.rowconfigure(0, weight=1)
     call_record_tree = ttk.Treeview(
         call_record_list_box,
-        columns=("customer_name", "last_call_time", "call_cost"),
+        columns=("customer_name", "last_call_time", "call_cost", "billing_duration", "price_per_minute"),
         show="headings",
         style="ConversationCallRecord.Treeview",
     )
     call_record_tree.heading("customer_name", text="客户名称")
     call_record_tree.heading("last_call_time", text="上次通话时间")
     call_record_tree.heading("call_cost", text="通话费用")
-    call_record_tree.column("customer_name", width=260, anchor="w", stretch=True)
-    call_record_tree.column("last_call_time", width=220, anchor="w", stretch=True)
-    call_record_tree.column("call_cost", width=120, anchor="e", stretch=False)
+    call_record_tree.heading("billing_duration", text="计费时长")
+    call_record_tree.heading("price_per_minute", text="价格/分钟")
+    call_record_tree.column("customer_name", width=220, minwidth=120, anchor="w", stretch=True)
+    call_record_tree.column("last_call_time", width=180, minwidth=120, anchor="w", stretch=True)
+    call_record_tree.column("call_cost", width=110, minwidth=90, anchor="e", stretch=True)
+    call_record_tree.column("billing_duration", width=100, minwidth=90, anchor="e", stretch=True)
+    call_record_tree.column("price_per_minute", width=120, minwidth=100, anchor="e", stretch=True)
     record_scroll_y = ttk.Scrollbar(call_record_list_box, orient=tk.VERTICAL, command=call_record_tree.yview, style="App.Vertical.TScrollbar")
     call_record_tree.configure(yscrollcommand=record_scroll_y.set)
     call_record_tree.grid(row=0, column=0, sticky="nsew")
@@ -572,19 +662,21 @@ def build_conversation_tab(
     customer_data_panel.rowconfigure(0, weight=1)
     customer_data_panes = ttk.Panedwindow(customer_data_panel, orient=tk.HORIZONTAL)
     customer_data_panes.grid(row=0, column=0, sticky="nsew")
-    customer_data_list_box = ttk.LabelFrame(customer_data_panes, text="通话记录列表", style="ThinSection.TLabelframe", padding=0)
+    customer_data_list_box = ttk.LabelFrame(customer_data_panes, text="客户列表", style="ThinSection.TLabelframe", padding=0)
     customer_data_list_box.columnconfigure(0, weight=1)
     customer_data_list_box.rowconfigure(0, weight=1)
     customer_data_record_tree = ttk.Treeview(
         customer_data_list_box,
-        columns=("customer_name", "call_action"),
+        columns=("customer_name", "detail_action", "call_action"),
         show=[],
         style="ConversationCallRecord.Treeview",
     )
     customer_data_record_tree.heading("customer_name", text="客户名称")
+    customer_data_record_tree.heading("detail_action", text="")
     customer_data_record_tree.heading("call_action", text="")
-    customer_data_record_tree.column("customer_name", width=160, anchor="w", stretch=True)
-    customer_data_record_tree.column("call_action", width=68, anchor="e", stretch=False)
+    customer_data_record_tree.column("customer_name", width=120, anchor="center", stretch=True)
+    customer_data_record_tree.column("detail_action", width=120, anchor="center", stretch=True)
+    customer_data_record_tree.column("call_action", width=120, anchor="center", stretch=True)
     customer_data_list_scroll_y = ttk.Scrollbar(customer_data_list_box, orient=tk.VERTICAL, command=customer_data_record_tree.yview, style="App.Vertical.TScrollbar")
     customer_data_record_tree.configure(yscrollcommand=customer_data_list_scroll_y.set)
     customer_data_record_tree.grid(row=0, column=0, sticky="nsew")
@@ -688,6 +780,26 @@ def build_conversation_tab(
     )
     customer_data_panes.add(customer_data_list_box, weight=0)
     customer_data_panes.add(customer_data_detail_wrap, weight=1)
+    _customer_data_sash_initialized = [False]
+
+    def _set_customer_data_sash() -> None:
+        if _customer_data_sash_initialized[0]:
+            return
+        total_w = int(customer_data_panes.winfo_width() or 0)
+        if total_w <= 0:
+            customer_data_panes.after(80, _set_customer_data_sash)
+            return
+        min_right_w = 320
+        target_list_w = max(190, int(total_w * 0.19))
+        target_list_w = min(target_list_w, max(220, total_w - min_right_w))
+        try:
+            customer_data_panes.sashpos(0, target_list_w)
+        except tk.TclError:
+            return
+        _customer_data_sash_initialized[0] = True
+
+    customer_data_panes.bind("<Map>", lambda _event: customer_data_panes.after_idle(_set_customer_data_sash), add="+")
+    customer_data_panes.bind("<Configure>", lambda _event: customer_data_panes.after_idle(_set_customer_data_sash), add="+")
 
     monitor_tab.columnconfigure(0, weight=1)
     monitor_tab.rowconfigure(0, weight=1)
@@ -881,6 +993,9 @@ def build_conversation_tab(
     self.latency_text = monitor_latency_text
     self.dialog_conversation_text = dialog_conversation_text
     self.dialog_intent_text = dialog_intent_text
+    self.dialog_intent_table = dialog_intent_table
+    self.dialog_billing_text = dialog_billing_text
+    self.dialog_billing_table = dialog_billing_table
     self.dialog_intent_queue_text = dialog_intent_queue_text
     self.dialog_strategy_text = dialog_strategy_text
     self.conversation_workflow_text = conversation_strategy_text
@@ -927,6 +1042,9 @@ def build_conversation_tab(
         monitor_process_status_label=self.monitor_process_status_label,
         dialog_conversation_text=self.dialog_conversation_text,
         dialog_intent_text=self.dialog_intent_text,
+        dialog_intent_table=self.dialog_intent_table,
+        dialog_billing_text=self.dialog_billing_text,
+        dialog_billing_table=self.dialog_billing_table,
         dialog_intent_queue_text=self.dialog_intent_queue_text,
         dialog_strategy_text=self.dialog_strategy_text,
         conversation_workflow_text=self.conversation_workflow_text,

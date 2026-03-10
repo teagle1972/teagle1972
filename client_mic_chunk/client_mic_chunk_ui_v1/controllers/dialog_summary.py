@@ -125,9 +125,6 @@ DEFAULT_DIALOG_SUMMARY_PROMPT_TEMPLATE = "\n".join(
         "3. 客户的承诺",
         "如需列举多条，请使用\"1. ...\"的格式",
         "换行时请使用\"关键词：\n内容\"的格式",
-        "",
-        "对话内容如下：",
-        "{conversation_text}{extra_hint_block}",
     ]
 )
 
@@ -140,11 +137,6 @@ DEFAULT_NEXT_DIALOG_STRATEGY_PROMPT_TEMPLATE = "\n".join(
         "3. 策略应具体可操作，避免泛泛而谈",
         "4. 每条策略建议精简至1-2句话",
         "5. 策略按优先级排序，最重要的放在最前面",
-        "对话内容：",
-        "{conversation_text}",
-        "",
-        "待确认承诺事项：",
-        "{commitment_confirmation_text}{extra_hint_block}",
     ]
 )
 
@@ -171,12 +163,9 @@ def build_dialog_summary_llm_prompt(
     hint = str(extra_hint or "").strip()
     hint_block = f"\n\n重点关注：{hint}" if hint else ""
     template = str(template_text or "").strip() or DEFAULT_DIALOG_SUMMARY_PROMPT_TEMPLATE
-    return _render_prompt_template(
-        template,
-        conversation_text=(conversation_text or "").strip(),
-        extra_hint=hint,
-        extra_hint_block=hint_block,
-    )
+    rendered = _render_prompt_template(template, extra_hint=hint, extra_hint_block=hint_block)
+    conv = (conversation_text or "").strip()
+    return rendered.rstrip() + f"\n\n对话内容如下：\n{conv}{hint_block}"
 
 
 def build_pending_items_llm_prompt(conversation_text: str) -> str:
@@ -214,13 +203,10 @@ def build_next_dialog_strategy_llm_prompt(
     hint = str(extra_hint or "").strip()
     hint_block = f"\n\n重点关注：{hint}" if hint else ""
     template = str(template_text or "").strip() or DEFAULT_NEXT_DIALOG_STRATEGY_PROMPT_TEMPLATE
-    return _render_prompt_template(
-        template,
-        conversation_text=(conversation_text or "").strip(),
-        commitment_confirmation_text=(commitment_confirmation_text or "").strip() or "暂无",
-        extra_hint=hint,
-        extra_hint_block=hint_block,
-    )
+    rendered = _render_prompt_template(template, extra_hint=hint, extra_hint_block=hint_block)
+    conv = (conversation_text or "").strip()
+    commitment = (commitment_confirmation_text or "").strip() or "暂无"
+    return rendered.rstrip() + f"\n\n对话内容：\n{conv}\n\n待确认承诺事项：\n{commitment}{hint_block}"
 
 
 def extract_pending_commitment_items(summary_text: str) -> list[str]:

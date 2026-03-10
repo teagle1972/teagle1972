@@ -21,6 +21,10 @@ from tkinter.scrolledtext import ScrolledText
 from typing import Callable, Iterator, TextIO
 
 import requests
+try:
+    import winsound
+except Exception:
+    winsound = None
 
 try:
     from .backend import ClientProcessBridge, UiEvent  # type: ignore[attr-defined]
@@ -665,6 +669,9 @@ class ConversationTabContext:
     monitor_process_status_label: tk.Label | None
     dialog_conversation_text: ScrolledText | None
     dialog_intent_text: ScrolledText | None
+    dialog_intent_table: ttk.Treeview | None
+    dialog_billing_text: ScrolledText | None
+    dialog_billing_table: ttk.Treeview | None
     dialog_intent_queue_text: ScrolledText | None
     dialog_strategy_text: ScrolledText | None
     conversation_workflow_text: ScrolledText | None
@@ -785,6 +792,16 @@ class MicChunkUiApp(tk.Tk):
         self._send_done_summary_total_ms = 0
         self._send_done_summary_max_ms = 0
         self._send_done_summary_deadline = 0.0
+        self._skip_auto_start_dialog_once = False
+        self._call_overlay_window: tk.Toplevel | None = None
+        self._call_overlay_canvas: tk.Canvas | None = None
+        self._call_overlay_canvas_bg_item: int | None = None
+        self._call_overlay_canvas_calling_item: int | None = None
+        self._call_overlay_canvas_status_item: int | None = None
+        self._call_overlay_calling_anim_id: str | None = None
+        self._call_overlay_calling_step: int = 0
+        self._call_overlay_status_poll_after_id: str | None = None
+        self._call_overlay_bg_image: tk.PhotoImage | None = None
 
         self._workspace_dir = Path(__file__).resolve().parent.parent
         self._runtime_log_dir = self._workspace_dir / "logs"
@@ -816,6 +833,7 @@ class MicChunkUiApp(tk.Tk):
         self.tts_text: ScrolledText | None = None
         self.nlp_input_text: ScrolledText | None = None
         self.dialog_intent_text: ScrolledText | None = None
+        self.dialog_intent_table: ttk.Treeview | None = None
         self.dialog_intent_queue_text: ScrolledText | None = None
         self.dialog_strategy_text: ScrolledText | None = None
         self._dialog_intent_history: list[str] = []
@@ -826,6 +844,8 @@ class MicChunkUiApp(tk.Tk):
         self.intent_text: ScrolledText | None = None
         self.intent_system_text: ScrolledText | None = None
         self.intent_prompt_text: ScrolledText | None = None
+        self.dialog_billing_text: ScrolledText | None = None
+        self.dialog_billing_table: ttk.Treeview | None = None
         self.profile_call_btn: ttk.Button | None = None
         self.conversation_profile_status_var: tk.StringVar | None = None
         self.conversation_profile_status_label: tk.Label | None = None
@@ -840,14 +860,15 @@ class MicChunkUiApp(tk.Tk):
         self.conversation_strategy_prompt_text: ScrolledText | None = None
         self._dialog_summary_prompt_template_cache: str = DEFAULT_DIALOG_SUMMARY_PROMPT_TEMPLATE
         self._dialog_strategy_prompt_template_cache: str = DEFAULT_NEXT_DIALOG_STRATEGY_PROMPT_TEMPLATE
-        self._prompt_templates_path = self._workspace_dir / "_prompt_templates.json"
-        self._load_prompt_templates_from_file()
         self._conversation_workflow_syncing = False
         self._conversation_strategy_history: list[dict[str, str]] = []
         self._conversation_customer_profile_history: list[dict[str, str]] = []
         self._conversation_intent_generator_history: list[dict[str, str]] = []
         self._dialog_conversation_history_by_customer: dict[str, list[dict[str, str]]] = {}
         self._dialog_conversation_active_customer_key = ""
+        self._last_billing_total_cost = 0.0
+        self._last_billing_duration_seconds = 0.0
+        self._last_billing_price_per_minute = 0.0
         self._call_record_item_by_iid: dict[str, dict[str, str]] = {}
         self._customer_data_customer_by_iid: dict[str, str] = {}
         self._customer_data_case_cache_by_name: dict[str, dict[str, object]] = {}
@@ -1421,6 +1442,13 @@ class MicChunkUiApp(tk.Tk):
         if not command:
             messagebox.showwarning("Invalid command", "Command cannot be empty.")
             return
+        skip_auto_start_dialog = bool(self._skip_auto_start_dialog_once)
+        self._skip_auto_start_dialog_once = False
+        if skip_auto_start_dialog:
+            tokens = self._safe_split(command)
+            if "--skip-auto-start-dialog" not in tokens:
+                tokens.append("--skip-auto-start-dialog")
+                command = self._safe_join(tokens)
         command = self._ensure_unbuffered_python_command(command)
         command = self._ensure_mic_capture_command(command)
         self.command_var.set(command)
@@ -1604,6 +1632,16 @@ class MicChunkUiApp(tk.Tk):
             intent_text=intent_text,
         )
 
+    def _start_from_customer_data_call_icon(self) -> None:
+        self._skip_auto_start_dialog_once = True
+        self._open_customer_call_overlay()
+        was_running = bool(self._bridge.running)
+        self._start_from_conversation_profile(prefer_customer_data_context=False)
+        if self._skip_auto_start_dialog_once and (not self._bridge.running):
+            self._skip_auto_start_dialog_once = False
+        if (not was_running) and (not self._bridge.running):
+            self._close_customer_call_overlay()
+
     def _build_profile_text_from_dialog_profile_table(self) -> str:
         tree = self.dialog_profile_table
         if not isinstance(tree, ttk.Treeview):
@@ -1641,6 +1679,7 @@ class MicChunkUiApp(tk.Tk):
     def _stop(self) -> None:
         self._bridge.stop()
         self._set_microphone_open("main", False, reason="stop_clicked")
+        self._close_customer_call_overlay()
 
     def _stop_settings_asr(self) -> None:
         self._settings_asr_bridge.stop()
@@ -1655,6 +1694,212 @@ class MicChunkUiApp(tk.Tk):
             self.asr_enabled_var.set(False)
             self.asr_toggle_text_var.set("开启ASR识别")
         self._reset_asr_wait()
+        self._close_customer_call_overlay()
+
+    def _open_customer_call_overlay(self) -> None:
+        self._close_customer_call_overlay()
+        win = tk.Toplevel(self)
+        win.title("Call Overlay")
+        win.attributes("-topmost", True)
+        win.resizable(False, False)
+        win.configure(bg="#000000")
+
+        _default_w, _default_h = 320, 180
+        screen_w = int(self.winfo_screenwidth() or 1600)
+        screen_h = int(self.winfo_screenheight() or 900)
+        pos_x = max(0, int((screen_w - _default_w) / 2))
+        pos_y = max(0, int((screen_h - _default_h) / 2))
+        win.geometry(f"{_default_w}x{_default_h}+{pos_x}+{pos_y}")
+        win.lift()
+
+        # Canvas covers entire window; text items have no background → transparent
+        canvas = tk.Canvas(win, bg="#000000", highlightthickness=0, bd=0)
+        canvas.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
+
+        cx, cy = _default_w // 2, int(_default_h * 0.40)
+        sx, sy = _default_w // 2, int(_default_h * 0.92)
+
+        bg_item = canvas.create_image(0, 0, anchor="nw")
+        calling_item = canvas.create_text(
+            cx, cy,
+            text="正在呼叫",
+            fill="#00ff00",
+            font=(UI_FONT_FAMILY, 22, "bold"),
+            anchor="center",
+        )
+        status_var = self.conversation_profile_status_var
+        status_text = str(status_var.get() if isinstance(status_var, tk.StringVar) else "stopped | endpoint=-")
+        status_item = canvas.create_text(
+            sx, sy,
+            text=f"状态: {status_text}",
+            fill="#ffffff",
+            font=(UI_FONT_FAMILY, 10),
+            anchor="center",
+        )
+
+        canvas.bind("<Button-1>", self._on_customer_call_overlay_click, add="+")
+        win.bind("<Button-1>", self._on_customer_call_overlay_click, add="+")
+
+        self._call_overlay_window = win
+        self._call_overlay_canvas = canvas
+        self._call_overlay_canvas_bg_item = bg_item
+        self._call_overlay_canvas_calling_item = calling_item
+        self._call_overlay_canvas_status_item = status_item
+        self._call_overlay_calling_anim_id = None
+        self._call_overlay_calling_step = 0
+
+        # Deferred image load — window appears immediately with black bg
+        bg_path = Path(__file__).resolve().parent / "1.png"
+
+        def _load_image():
+            if not win.winfo_exists():
+                return
+            try:
+                img = tk.PhotoImage(file=str(bg_path))
+            except Exception:
+                img = None
+            self._call_overlay_bg_image = img
+            if img is not None:
+                img_w = img.width()
+                img_h = img.height()
+                pos_x2 = max(0, int((screen_w - img_w) / 2))
+                pos_y2 = max(0, int((screen_h - img_h) / 2))
+                win.geometry(f"{img_w}x{img_h}+{pos_x2}+{pos_y2}")
+                canvas.configure(width=img_w, height=img_h)
+                canvas.itemconfig(bg_item, image=img)
+                # Reposition text to new dimensions
+                new_cx = img_w // 2
+                new_cy = int(img_h * 0.40)
+                new_sx = img_w // 2
+                new_sy = int(img_h * 0.92)
+                canvas.coords(calling_item, new_cx, new_cy)
+                canvas.coords(status_item, new_sx, new_sy)
+
+        win.after_idle(_load_image)
+
+        # Bounce animation: 8-frame vertical sine approximation at 120 ms/frame
+        _BOUNCE_Y = [0, -5, -9, -12, -13, -12, -9, -5]
+        _DOTS = ["", ".", "..", "..."]
+
+        def _animate_calling():
+            if self._call_overlay_calling_anim_id is None:
+                return
+            try:
+                if not canvas.winfo_exists():
+                    return
+            except Exception:
+                return
+            step = self._call_overlay_calling_step
+            # Recompute base y from current canvas size
+            try:
+                h = canvas.winfo_height() or _default_h
+            except Exception:
+                h = _default_h
+            w = canvas.winfo_width() or _default_w
+            base_cx = w // 2
+            base_cy = int(h * 0.40)
+            dy = _BOUNCE_Y[step % len(_BOUNCE_Y)]
+            canvas.coords(calling_item, base_cx, base_cy + dy)
+            dot_text = _DOTS[(step // len(_BOUNCE_Y)) % len(_DOTS)]
+            canvas.itemconfig(calling_item, text=f"正在呼叫{dot_text}")
+            self._call_overlay_calling_step += 1
+            self._call_overlay_calling_anim_id = win.after(120, _animate_calling)
+
+        self._call_overlay_calling_anim_id = win.after(0, _animate_calling)
+
+        self._schedule_customer_call_overlay_status_poll()
+
+    def _on_customer_call_overlay_click(self, _event=None) -> None:
+        self._stop_customer_call_overlay_audio_loop()
+
+    def _schedule_customer_call_overlay_status_poll(self) -> None:
+        if self._call_overlay_status_poll_after_id:
+            try:
+                self.after_cancel(self._call_overlay_status_poll_after_id)
+            except Exception:
+                pass
+        self._call_overlay_status_poll_after_id = self.after(250, self._poll_customer_call_overlay_status)
+
+    def _poll_customer_call_overlay_status(self) -> None:
+        self._call_overlay_status_poll_after_id = None
+        canvas = self._call_overlay_canvas
+        item_id = self._call_overlay_canvas_status_item
+        win = self._call_overlay_window
+        if canvas is None or item_id is None or win is None:
+            return
+        try:
+            if not win.winfo_exists() or not canvas.winfo_exists():
+                return
+        except Exception:
+            return
+        status_var = self.conversation_profile_status_var
+        status_text = str(status_var.get() if isinstance(status_var, tk.StringVar) else "stopped | endpoint=-")
+        try:
+            canvas.itemconfig(item_id, text=f"状态: {status_text}")
+        except Exception:
+            return
+        self._schedule_customer_call_overlay_status_poll()
+
+    def _start_customer_call_overlay_audio_loop(self) -> None:
+        audio_path = Path(__file__).resolve().parent / "1.wav"
+        if not audio_path.exists():
+            return
+        if winsound is None:
+            return
+        self._stop_customer_call_overlay_audio_loop()
+        try:
+            winsound.PlaySound(
+                str(audio_path),
+                winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP,
+            )
+        except Exception:
+            pass
+
+    def _stop_customer_call_overlay_audio_loop(self) -> None:
+        if winsound is None:
+            return
+        try:
+            winsound.PlaySound(None, 0)
+        except Exception:
+            pass
+
+    def _on_customer_call_overlay_ws_connected(self) -> None:
+        if self._call_overlay_window is None:
+            return
+        self._start_customer_call_overlay_audio_loop()
+
+    def _on_customer_call_overlay_tts_first_frame(self) -> None:
+        self._close_customer_call_overlay()
+
+    def _close_customer_call_overlay(self) -> None:
+        if self._call_overlay_status_poll_after_id:
+            try:
+                self.after_cancel(self._call_overlay_status_poll_after_id)
+            except Exception:
+                pass
+            self._call_overlay_status_poll_after_id = None
+        # Cancel calling animation
+        anim_id = getattr(self, "_call_overlay_calling_anim_id", None)
+        if anim_id is not None:
+            try:
+                self.after_cancel(anim_id)
+            except Exception:
+                pass
+        self._call_overlay_calling_anim_id = None
+        self._stop_customer_call_overlay_audio_loop()
+        win = self._call_overlay_window
+        if win is not None:
+            try:
+                if win.winfo_exists():
+                    win.destroy()
+            except Exception:
+                pass
+        self._call_overlay_window = None
+        self._call_overlay_canvas = None
+        self._call_overlay_canvas_bg_item = None
+        self._call_overlay_canvas_calling_item = None
+        self._call_overlay_canvas_status_item = None
+        self._call_overlay_bg_image = None
 
     def _schedule_snapshot_autosave(self) -> None:
         if self._snapshot_autosave_after_id:
@@ -2571,8 +2816,8 @@ class MicChunkUiApp(tk.Tk):
             widest = max(widest, int(font.measure(line)))
         bubble_w = min(max_bubble_width, max(190, widest + 26))
         text_w = max(60, bubble_w - 26)
-        fill = "#e9eef3" if is_right else "#f4f8ee"
-        edge = "#c7d0db" if is_right else "#c8d7ba"
+        fill = "#e9eef3" if is_right else str(widget.cget("bg"))
+        edge = "#c7d0db" if is_right else ""
         # Measure actual rendered height via a temporary text item.
         canvas.configure(width=bubble_w + 2, height=1, bg=str(widget.cget("bg")), bd=0, highlightthickness=0)
         canvas.delete("all")
@@ -2729,10 +2974,7 @@ class MicChunkUiApp(tk.Tk):
             lmargin1=right_left_margin,
             lmargin2=right_left_margin,
             rmargin=side_gap,
-            background="#e6e8eb",
             foreground="#111827",
-            borderwidth=1,
-            relief="flat",
             spacing1=6,
             spacing3=6,
         )
@@ -2742,10 +2984,7 @@ class MicChunkUiApp(tk.Tk):
             lmargin1=side_gap,
             lmargin2=side_gap,
             rmargin=left_right_margin,
-            background="#dcfce7",
             foreground="#111827",
-            borderwidth=1,
-            relief="flat",
             spacing1=6,
             spacing3=6,
         )
@@ -2912,6 +3151,7 @@ class MicChunkUiApp(tk.Tk):
             source_widget.delete(start_idx, "end-1c")
         except Exception:
             return
+        dialog.pop("_cp_active_left_bubble", None)
         dialog["live_response_phase"] = "content"
 
     def _append_live_conversation_customer_profile_thinking_chunk(self, source_widget: ScrolledText, chunk: str) -> None:
@@ -2967,38 +3207,6 @@ class MicChunkUiApp(tk.Tk):
             from tkinter import messagebox
             messagebox.showerror("保存失败", str(exc))
 
-    def _load_prompt_templates_from_file(self) -> None:
-        """从本地文件加载提示词模板，不存在则保留默认值"""
-        try:
-            path = getattr(self, "_prompt_templates_path", None)
-            if path is None or not Path(path).exists():
-                return
-            raw = json.loads(Path(path).read_text(encoding="utf-8"))
-            if not isinstance(raw, dict):
-                return
-            summary = str(raw.get("dialog_summary_prompt", "") or "").strip()
-            strategy = str(raw.get("dialog_strategy_prompt", "") or "").strip()
-            if summary:
-                self._dialog_summary_prompt_template_cache = summary
-            if strategy:
-                self._dialog_strategy_prompt_template_cache = strategy
-        except Exception:
-            pass
-
-    def _save_prompt_templates_to_file(self) -> None:
-        """将当前提示词模板缓存写入本地文件"""
-        try:
-            path = getattr(self, "_prompt_templates_path", None)
-            if path is None:
-                return
-            data = {
-                "dialog_summary_prompt": self._dialog_summary_prompt_template_cache,
-                "dialog_strategy_prompt": self._dialog_strategy_prompt_template_cache,
-            }
-            Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception:
-            pass
-
     def _save_dialog_summary_prompt_from_panel(self) -> None:
         """保存对话总结提示词模板"""
         try:
@@ -3007,7 +3215,7 @@ class MicChunkUiApp(tk.Tk):
                 text = widget.get("1.0", "end-1c").strip()
                 if text:
                     self._dialog_summary_prompt_template_cache = text
-            self._save_prompt_templates_to_file()
+            self._save_persisted_conversation_tab_snapshots()
             from tkinter import messagebox
             messagebox.showinfo("保存成功", "对话总结提示词已保存")
         except Exception as exc:
@@ -3022,7 +3230,7 @@ class MicChunkUiApp(tk.Tk):
                 text = widget.get("1.0", "end-1c").strip()
                 if text:
                     self._dialog_strategy_prompt_template_cache = text
-            self._save_prompt_templates_to_file()
+            self._save_persisted_conversation_tab_snapshots()
             from tkinter import messagebox
             messagebox.showinfo("保存成功", "对话策略提示词已保存")
         except Exception as exc:
@@ -3141,6 +3349,7 @@ class MicChunkUiApp(tk.Tk):
             source_widget.delete(start_idx, "end-1c")
         except Exception:
             return
+        dialog.pop("_cp_active_left_bubble", None)
         dialog["live_response_phase"] = "content"
 
     def _append_live_conversation_intent_thinking_chunk(self, source_widget: ScrolledText, chunk: str) -> None:

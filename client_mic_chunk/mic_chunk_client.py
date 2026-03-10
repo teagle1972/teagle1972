@@ -1,4 +1,4 @@
-import argparse
+﻿import argparse
 import gzip
 import importlib
 import json
@@ -247,7 +247,7 @@ class MicChunkClient:
         self._asr_first_commit_seen = False
         self._asr_wait_warned = False
         self._asr_seq = 1
-        self._last_audio_sent_at: float = 0.0  # 最近一次发送音频 chunk 的时刻，用于计算上传+后台耗时
+        self._last_audio_sent_at: float = 0.0  # 鏈€杩戜竴娆″彂閫侀煶棰?chunk 鐨勬椂鍒伙紝鐢ㄤ簬璁＄畻涓婁紶+鍚庡彴鑰楁椂
         self._queue_drop_oldest = 0
         self._queue_drop_newest = 0
         self._queue_drop_log_deadline = 0.0
@@ -262,6 +262,7 @@ class MicChunkClient:
         self._runtime_intent_labels = self._extract_intent_labels(os.getenv("INTENT_LABELS") or "")
         self._runtime_intent_fallback_label = (os.getenv("INTENT_FALLBACK_LABEL") or "").strip()
         self._runtime_prompt_pushed = False
+        self._start_dialog_sent = False
 
         self._save_dir: Path | None = Path(args.save_dir) if args.save_dir else None
         if self._save_dir is not None:
@@ -1117,7 +1118,6 @@ class MicChunkClient:
             else:
                 self._receiver_thread = threading.Thread(target=self._ws_receive_loop, daemon=True)
                 self._receiver_thread.start()
-            self._send_dialog_control_event("start_dialog", "开始对话")
         elif self.args.transport == "asrws":
             self._connect_asr_websocket()
             self._receiver_thread = threading.Thread(target=self._asr_receive_loop, daemon=True)
@@ -1131,7 +1131,7 @@ class MicChunkClient:
     def stop(self) -> None:
         self.stop_event.set()
         if self.args.transport == "ws":
-            self._send_dialog_control_event("end_dialog", "结束对话")
+            self._send_dialog_control_event("end_dialog", "缁撴潫瀵硅瘽")
             if self.args.ws_split_channels:
                 if self._ws_control is not None:
                     try:
@@ -1953,7 +1953,7 @@ class MicChunkClient:
         self._ws_audio_total_bytes += len(audio)
         if self._ws_audio_frame_count == 1:
             print(f"[ws/tts] first_frame_bytes={len(audio)}")
-            # 端到端耗时：最后一帧音频发出 → 收到第一帧 TTS 音频（含上传+后台+下发）
+            # End-to-end latency: last audio frame sent -> first TTS frame received.
             if self._last_audio_sent_at > 0:
                 e2e_ms = int((time.monotonic() - self._last_audio_sent_at) * 1000)
                 print(f"[latency] e2e_ms={e2e_ms}  (upload+backend+download)")
@@ -2009,6 +2009,9 @@ class MicChunkClient:
             self._asr_first_commit_seen = False
             self._asr_wait_warned = False
             self._push_runtime_prompt_if_needed(trigger="ready")
+            if (not self.args.skip_auto_start_dialog) and (not self._start_dialog_sent):
+                self._send_dialog_control_event("start_dialog", "开始对话")
+                self._start_dialog_sent = True
             print(
                 f"[asr/monitor] ready session_id={session_id} "
                 f"sample_rate={payload.get('asr_sample_rate', '-')}"
@@ -2070,6 +2073,28 @@ class MicChunkClient:
                         ensure_ascii=False,
                     )
                 )
+                # Server explicitly asked to terminate this dialog session:
+                # stop capture/upload loops immediately instead of waiting for manual stop.
+                if not self.stop_event.is_set():
+                    self.stop_event.set()
+                    if self.args.transport == "ws":
+                        if self.args.ws_split_channels:
+                            if self._ws_media is not None:
+                                try:
+                                    self._ws_media.close()
+                                except Exception:
+                                    pass
+                            if self._ws_control is not None:
+                                try:
+                                    self._ws_control.close()
+                                except Exception:
+                                    pass
+                        elif self._ws is not None:
+                            try:
+                                self._ws.close()
+                            except Exception:
+                                pass
+                    print("[ws/terminate] stop_event set by server terminate_session")
             print(
                 f"[ws/command] command={command} "
                 f"action={action} "
@@ -2259,7 +2284,7 @@ def parse_args() -> argparse.Namespace:
         "--server-env",  
         default="local",#local|public
         choices=["local", "public"],
-        help="Server environment preset: local (127.0.0.1) or public (鍏綉缃戝叧)",
+        help="Server environment preset: local (127.0.0.1) or public (閸忣剛缍夌純鎴濆彠)",
     )
     parser.add_argument(
         "--base-url",
@@ -2315,6 +2340,11 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=1.0,
         help="Retry interval for media websocket reconnect in split-channel mode",
+    )
+    parser.add_argument(
+        "--skip-auto-start-dialog",
+        action="store_true",
+        help="Do not auto-send start_dialog on ready event",
     )
     parser.add_argument(
         "--asr-ws-url",

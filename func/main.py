@@ -18,6 +18,7 @@ from typing import Any, AsyncGenerator, AsyncIterable, Callable, Generator
 import aiohttp
 import uvicorn
 from arkitect.core.component.tts.model import AudioParams, ConnectionParams
+from arkitect.core.component.tts import tts_client as ark_tts_client_module
 from arkitect.core.component.tts.tts_client import AsyncTTSClient
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, StreamingResponse
@@ -47,6 +48,13 @@ def _patch_tts_usage_header() -> None:
 
 
 _patch_tts_usage_header()
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
 
 # ASR 接入地址（WebSocket）。用于实时语音识别上行连接。
 WS_URL = os.getenv("ASR_WS_URL", "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async")
@@ -107,6 +115,11 @@ TTS_VOICE_TYPE = os.getenv("TTS_VOICE_TYPE", "S_LFqyLTCH1")
 TTS_SAMPLE_RATE = int(os.getenv("TTS_SAMPLE_RATE", "24000"))
 TTS_AUDIO_FORMAT = os.getenv("TTS_AUDIO_FORMAT", "pcm")
 TTS_PRICE_PER_10K_CHARS_CNY = float(os.getenv("TTS_PRICE_PER_10K_CHARS_CNY", "3.0"))
+# TTS 上游 websocket keepalive 参数（秒）。<=0 表示关闭对应保活项。
+TTS_WS_PING_INTERVAL = float(os.getenv("TTS_WS_PING_INTERVAL", "20"))
+TTS_WS_PING_TIMEOUT = float(os.getenv("TTS_WS_PING_TIMEOUT", "90"))
+# 打开后输出 websockets debug（包含 ping/pong 帧级日志，日志量较大）。
+TTS_WS_TRACE = _env_bool("TTS_WS_TRACE", True)
 ASR_PRICE_PER_HOUR_CNY = float(os.getenv("ASR_PRICE_PER_HOUR_CNY", "4.5"))
 
 # 回声识别时间窗（秒）：在该窗口内更倾向判定“ASR 文本可能是 TTS 回声”。
@@ -283,8 +296,6 @@ WORKFLOW_TASK_PLACEHOLDER = "__WORKFLOW_TASK_NOTES__"
 PRE_PROMPT = "\n\n".join(
     [
         DEFAULT_SYSTEM_INSTRUCTION_BASE.strip(),
-        DEFAULT_CUSTOMER_PROFILE.strip(),
-        DEFAULT_WORKFLOW.strip(),
     ]
 )
 
@@ -350,6 +361,70 @@ logger.info(
 )
 if _file_logging_error:
     logger.warning("file logging init failed log_file=%s error=%s", str(LOG_FILE), _file_logging_error)
+
+
+def _patch_tts_ws_connect() -> None:
+    if getattr(AsyncTTSClient, "_ws_connect_patch_applied", False):
+        return
+    original_connect = getattr(ark_tts_client_module.websockets, "connect", None)
+    if not callable(original_connect):
+        return
+
+    ping_interval = None if TTS_WS_PING_INTERVAL <= 0 else TTS_WS_PING_INTERVAL
+    ping_timeout = None if TTS_WS_PING_TIMEOUT <= 0 else TTS_WS_PING_TIMEOUT
+
+    def _patched_connect(*args: Any, **kwargs: Any):
+        kwargs.setdefault("ping_interval", ping_interval)
+        kwargs.setdefault("ping_timeout", ping_timeout)
+        if TTS_WS_TRACE:
+            ws_logger = logging.getLogger("websockets.client")
+            ws_logger.setLevel(logging.DEBUG)
+            kwargs.setdefault("logger", ws_logger)
+        return original_connect(*args, **kwargs)
+
+    ark_tts_client_module.websockets.connect = _patched_connect  # type: ignore[assignment]
+    AsyncTTSClient._ws_connect_patch_applied = True  # type: ignore[attr-defined]
+    logger.info(
+        "tts ws connect patched ping_interval=%s ping_timeout=%s trace=%s",
+        ping_interval,
+        ping_timeout,
+        TTS_WS_TRACE,
+    )
+
+
+_patch_tts_ws_connect()
+
+
+def _patch_tts_receive_decode_tolerance() -> None:
+    if getattr(AsyncTTSClient, "_receive_decode_tolerance_patch_applied", False):
+        return
+    original_parse_response = getattr(ark_tts_client_module, "parse_response", None)
+    if not callable(original_parse_response):
+        return
+
+    async def _patched_receive_data(self: Any):
+        if self.conn is None:
+            raise ValueError("Connection is not established")
+        while True:
+            response = await self.conn.recv()
+            try:
+                return original_parse_response(response)
+            except (UnicodeDecodeError, json.JSONDecodeError, gzip.BadGzipFile, ValueError) as exc:
+                # Drop only this broken frame and continue consuming stream data.
+                logger.warning(
+                    "tts decode failed and dropped frame conn_id=%s session_id=%s err=%s",
+                    getattr(self, "conn_id", None),
+                    getattr(self, "session_id", None),
+                    f"{exc.__class__.__name__}: {exc}",
+                )
+                continue
+
+    AsyncTTSClient._receive_data = _patched_receive_data  # type: ignore[method-assign]
+    AsyncTTSClient._receive_decode_tolerance_patch_applied = True  # type: ignore[attr-defined]
+    logger.info("tts receive decode tolerance patch enabled")
+
+
+_patch_tts_receive_decode_tolerance()
 
 
 @asynccontextmanager

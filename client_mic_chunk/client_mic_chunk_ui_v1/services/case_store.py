@@ -160,6 +160,8 @@ def build_customer_case_text(
     for entry in records:
         call_time = str(entry.get("call_time", "") or "").strip()
         call_cost = str(entry.get("call_cost", "") or "").strip()
+        billing_duration = str(entry.get("billing_duration", "") or "").strip()
+        price_per_minute = str(entry.get("price_per_minute", "") or "").strip()
         call_record = str(entry.get("call_record", "") or "").strip()
         summary = str(entry.get("summary", "") or "").strip()
         commitments = str(entry.get("commitments", "") or "").strip()
@@ -170,6 +172,8 @@ def build_customer_case_text(
                 ">>> 记录开始",
                 f"通话时间：{call_time}",
                 f"{CALL_COST_LABEL}: {call_cost}",
+                f"billing_duration: {billing_duration}",
+                f"price_per_minute: {price_per_minute}",
                 CALL_RECORD_HEADER,
                 call_record,
                 "",
@@ -228,7 +232,7 @@ def read_customer_case_file(path: Path) -> dict[str, object]:
     all_entries: list[dict[str, str]] = []
 
     def _new_entry() -> dict[str, str]:
-        return {"call_time": "", "call_cost": "", "call_record": "", "summary": "", "commitments": "", "strategy": ""}
+        return {"call_time": "", "call_cost": "", "billing_duration": "", "price_per_minute": "", "call_record": "", "summary": "", "commitments": "", "strategy": ""}
 
     def _flush_block() -> None:
         nonlocal buffer, current_block, current_entry
@@ -270,7 +274,17 @@ def read_customer_case_file(path: Path) -> dict[str, object]:
             if k_l in {"call_cost", "cost", "fee"}:
                 if current_entry is None:
                     current_entry = _new_entry()
-                current_entry["call_cost"] = v
+                current_entry["call_cost"] = v.replace("楼", "¥")
+                continue
+            if k_l == "billing_duration":
+                if current_entry is None:
+                    current_entry = _new_entry()
+                current_entry["billing_duration"] = v
+                continue
+            if k_l == "price_per_minute":
+                if current_entry is None:
+                    current_entry = _new_entry()
+                current_entry["price_per_minute"] = v
                 continue
 
         _flush_before_switch = False
@@ -314,6 +328,8 @@ def read_customer_case_file(path: Path) -> dict[str, object]:
                 {
                     "call_time": str(entry.get("call_time", "") or "").strip(),
                     "call_cost": str(entry.get("call_cost", "") or "").strip(),
+                    "billing_duration": str(entry.get("billing_duration", "") or "").strip(),
+                    "price_per_minute": str(entry.get("price_per_minute", "") or "").strip(),
                     "call_record": str(entry.get("call_record", "") or "").strip(),
                     "summary": str(entry.get("summary", "") or "").strip(),
                     "commitments": str(entry.get("commitments", "") or "").strip(),

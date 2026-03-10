@@ -112,6 +112,9 @@ def bind_conversation_tab_context(app, tab_id: str) -> bool:
     app.monitor_process_status_label = target.monitor_process_status_label
     app.dialog_conversation_text = target.dialog_conversation_text
     app.dialog_intent_text = target.dialog_intent_text
+    app.dialog_intent_table = target.dialog_intent_table
+    app.dialog_billing_text = target.dialog_billing_text
+    app.dialog_billing_table = target.dialog_billing_table
     app.dialog_intent_queue_text = target.dialog_intent_queue_text
     app.dialog_strategy_text = target.dialog_strategy_text
     app._dialog_intent_history = list(getattr(target, "dialog_intent_history", []) or [])
@@ -217,11 +220,17 @@ def capture_conversation_tab_snapshot(app, tab_id: str) -> dict[str, str]:
             except Exception:
                 pass
         profile_text = app._build_profile_text_from_dialog_profile_table()
-        conversation_text = (
-            app.dialog_conversation_text.get("1.0", "end-1c")
-            if isinstance(app.dialog_conversation_text, ScrolledText)
-            else ""
-        )
+        # Do not autosave newly-added live conversation text from the
+        # "客户与坐席对话" widget. Keep the last persisted snapshot value.
+        conversation_text = ""
+        snapshot_path = app._get_conversation_tab_snapshot_path(tab_id)
+        if isinstance(snapshot_path, Path) and snapshot_path.exists():
+            try:
+                raw_snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+                if isinstance(raw_snapshot, dict):
+                    conversation_text = str(raw_snapshot.get("conversation", "") or "")
+            except Exception:
+                conversation_text = ""
         dialog_intent_text = app.dialog_intent_text.get("1.0", "end-1c") if isinstance(app.dialog_intent_text, ScrolledText) else ""
         system_text = (
             app.conversation_system_instruction_text.get("1.0", "end-1c")
@@ -260,6 +269,16 @@ def capture_conversation_tab_snapshot(app, tab_id: str) -> dict[str, str]:
             list(getattr(app, "_current_session_customer_lines", []) or []),
             ensure_ascii=False,
         )
+        summary_prompt = (
+            app.conversation_summary_prompt_text.get("1.0", "end-1c")
+            if isinstance(app.conversation_summary_prompt_text, ScrolledText)
+            else ""
+        ) or app._dialog_summary_prompt_template_cache
+        strategy_prompt = (
+            app.conversation_strategy_prompt_text.get("1.0", "end-1c")
+            if isinstance(app.conversation_strategy_prompt_text, ScrolledText)
+            else ""
+        ) or app._dialog_strategy_prompt_template_cache
         return {
             "command": app.conversation_command_var.get(),
             "env": app.conversation_server_env_var.get(),
@@ -277,6 +296,8 @@ def capture_conversation_tab_snapshot(app, tab_id: str) -> dict[str, str]:
             "dialog_intent_history": dialog_intent_history_json,
             "dialog_intent_state_by_customer": dialog_intent_state_by_customer_json,
             "current_session_customer_lines": current_session_customer_lines_json,
+            "dialog_summary_prompt": summary_prompt,
+            "dialog_strategy_prompt": strategy_prompt,
         }
 
 
@@ -427,6 +448,16 @@ def apply_conversation_tab_snapshot(
         app._conversation_intent_generator_history.extend(intent_history_items)
         if isinstance(app.dialog_profile_table, ttk.Treeview):
             app._fill_profile_table_from_text(app.dialog_profile_table, snapshot.get("profile", ""), auto_height=True)
+        summary_prompt = str(snapshot.get("dialog_summary_prompt", "") or "").strip()
+        if summary_prompt:
+            app._dialog_summary_prompt_template_cache = summary_prompt
+            if isinstance(app.conversation_summary_prompt_text, ScrolledText):
+                app._set_text_content(app.conversation_summary_prompt_text, summary_prompt)
+        strategy_prompt = str(snapshot.get("dialog_strategy_prompt", "") or "").strip()
+        if strategy_prompt:
+            app._dialog_strategy_prompt_template_cache = strategy_prompt
+            if isinstance(app.conversation_strategy_prompt_text, ScrolledText):
+                app._set_text_content(app.conversation_strategy_prompt_text, strategy_prompt)
         app._sync_conversation_server_env_from_command(app.conversation_command_var.get().strip())
 
 
@@ -467,42 +498,14 @@ def get_conversation_tab_snapshot_path(app, tab_id: str) -> Path | None:
 
 
 def save_persisted_conversation_tab_snapshots(app) -> None:
-    for tab_id in list(app._conversation_tabs.keys()):
-        snapshot_path = app._get_conversation_tab_snapshot_path(tab_id)
-        if not isinstance(snapshot_path, Path):
-            continue
-        snapshot = app._capture_conversation_tab_snapshot(tab_id)
-        try:
-            snapshot_path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception:
-            continue
+    # Disabled by product requirement: realtime-conversation subwindows
+    # should not persist values between launches.
+    return
 
 
 def load_persisted_conversation_tab_snapshots(app) -> None:
-    for tab_id in list(app._conversation_tabs.keys()):
-        snapshot_path = app._get_conversation_tab_snapshot_path(tab_id)
-        if (not isinstance(snapshot_path, Path)) or (not snapshot_path.exists()):
-            continue
-        try:
-            raw = json.loads(snapshot_path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        if not isinstance(raw, dict):
-            continue
-        normalized: dict[str, str] = {}
-        for key, value in raw.items():
-            k = str(key)
-            if isinstance(value, str):
-                normalized[k] = value
-            else:
-                try:
-                    normalized[k] = json.dumps(value, ensure_ascii=False)
-                except Exception:
-                    normalized[k] = str(value)
-        try:
-            app._apply_conversation_tab_snapshot(tab_id, normalized)
-        except Exception:
-            continue
+    # Disabled by product requirement: do not restore snapshot values.
+    return
 
 
 def write_conversation_tab_meta(app, data_dir: Path, title: str) -> None:
@@ -537,6 +540,15 @@ def create_conversation_tab_internal(
     normalized_title = app._build_unique_conversation_tab_title(tab_title)
     source_id = source_tab_id or app._conversation_template_tab_id or app._active_conversation_tab_id
     snapshot = app._capture_conversation_tab_snapshot(source_id)
+    for _key in (
+        "system_instruction", "workflow_profile", "strategy", "strategy_input",
+        "intent", "dialog_intent", "conversation",
+        "strategy_history", "profile_history", "intent_history",
+        "dialog_intent_history", "dialog_intent_state_by_customer",
+        "current_session_customer_lines",
+        "dialog_summary_prompt", "dialog_strategy_prompt",
+    ):
+        snapshot[_key] = ""
     source_context = app._conversation_tabs.get(source_id)
     source_data_dir = (
         source_context.data_dir

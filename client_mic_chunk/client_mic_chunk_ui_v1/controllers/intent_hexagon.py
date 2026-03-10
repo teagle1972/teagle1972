@@ -19,23 +19,41 @@ def _active_key(app) -> str:
 
 
 def refresh_intent_queue_view(app) -> None:
-    widget = getattr(app, "dialog_intent_text", None)
-    if widget is None:
-        return
     history: list[str] = list(getattr(app, "_dialog_intent_history", []) or [])
+    table = getattr(app, "dialog_intent_table", None)
+    text_widget = getattr(app, "dialog_intent_text", None)
+
+    if table is not None:
+        try:
+            for iid in table.get_children():
+                table.delete(iid)
+            if history:
+                for idx, item in enumerate(history, start=1):
+                    text = str(item or "").strip()
+                    if not text:
+                        continue
+                    tag = "intent_even" if (idx % 2 == 0) else "intent_odd"
+                    table.insert("", "end", values=(idx, text), tags=(tag,))
+            else:
+                table.insert("", "end", values=("-", "暂无客户意图"), tags=("intent_empty",))
+        except Exception:
+            pass
+
+    if text_widget is None:
+        return
     try:
-        prev_state = str(widget.cget("state"))
-        widget.configure(state="normal")
-        widget.delete("1.0", "end")
+        prev_state = str(text_widget.cget("state"))
+        text_widget.configure(state="normal")
+        text_widget.delete("1.0", "end")
         if history:
             for idx, item in enumerate(history, start=1):
                 text = str(item or "").strip()
                 if text:
-                    widget.insert("end", f"{idx}. {text}\n")
+                    text_widget.insert("end", f"{idx}. {text}\n")
         else:
-            widget.insert("end", "暂无客户意图\n")
-        widget.configure(state=prev_state if prev_state in {"normal", "disabled"} else "disabled")
-        widget.see("1.0")
+            text_widget.insert("end", "暂无客户意图\n")
+        text_widget.configure(state=prev_state if prev_state in {"normal", "disabled"} else "disabled")
+        text_widget.see("1.0")
     except Exception:
         return
 
@@ -55,5 +73,4 @@ def sync_intent_strategy_for_active_customer(app) -> None:
     app._dialog_intent_history = [str(item).strip() for item in history if str(item).strip()][-200:]
     app._dialog_intent_state_current_customer_key = key
     refresh_intent_queue_view(app)
-
 

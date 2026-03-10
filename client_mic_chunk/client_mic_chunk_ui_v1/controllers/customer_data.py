@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime
 
@@ -25,11 +25,16 @@ def build_call_record_items(app) -> list[dict[str, str]]:
         records = list(case_data.get("records", []))
         for idx, entry in enumerate(records):
             call_time = str(entry.get("call_time", "") or "").strip() or str(case_data.get("updated_time", "") or "")
+            call_cost_text = str(entry.get("call_cost", "") or "").strip()
+            billing_duration_text = str(entry.get("billing_duration", "") or "").strip() or "-"
+            price_per_minute_text = str(entry.get("price_per_minute", "") or "").strip() or "-"
             items.append(
                 {
                     "customer_name": customer_name,
                     "last_call_time": call_time or "-",
-                    "call_cost": str(entry.get("call_cost", "") or "").strip(),
+                    "call_cost": call_cost_text,
+                    "billing_duration": billing_duration_text,
+                    "price_per_minute": price_per_minute_text,
                     "customer_profile": profile_text,
                     "call_record": str(entry.get("call_record", "") or ""),
                     "summary": str(entry.get("summary", "") or ""),
@@ -44,23 +49,25 @@ def build_call_record_items(app) -> list[dict[str, str]]:
 
 
 def render_call_record_detail(app, record: dict[str, str]) -> None:
-    customer_name = record.get("customer_name", "未知客户")
+    customer_name = record.get("customer_name", "Unknown Customer")
     call_time = record.get("last_call_time", "-")
     call_cost = str(record.get("call_cost", "") or "").strip() or "-"
+    billing_duration = str(record.get("billing_duration", "") or "").strip() or "-"
+    price_per_minute = str(record.get("price_per_minute", "") or "").strip() or "-"
     app.call_record_selected_var.set(
-        f"已选记录：{customer_name}  |  通话时间：{call_time}  |  通话费用：{call_cost}"
+        f"Selected: {customer_name} | Time: {call_time} | Cost: {call_cost} | Billing Duration: {billing_duration} | Price/Min: {price_per_minute}"
     )
     summary_widget = app.call_record_summary_text
     commitments_widget = app.call_record_commitments_text
     strategy_widget = app.call_record_strategy_text
     if isinstance(summary_widget, ScrolledText):
-        app._set_text_content(summary_widget, record.get("summary", "") or "暂无内容")
+        app._set_text_content(summary_widget, record.get("summary", "") or "No content")
         summary_widget.configure(state="disabled")
     if isinstance(commitments_widget, ScrolledText):
-        app._set_text_content(commitments_widget, record.get("commitments", "") or "暂无内容")
+        app._set_text_content(commitments_widget, record.get("commitments", "") or "No content")
         commitments_widget.configure(state="disabled")
     if isinstance(strategy_widget, ScrolledText):
-        app._set_text_content(strategy_widget, record.get("strategy", "") or "暂无内容")
+        app._set_text_content(strategy_widget, record.get("strategy", "") or "No content")
         strategy_widget.configure(state="disabled")
 
 def clear_call_record_detail(app, message: str = "请选择左侧通话记录") -> None:
@@ -94,7 +101,7 @@ def load_call_records_into_list(app) -> None:
     app._call_record_item_by_iid.clear()
     items = app._build_call_record_items()
     if not items:
-        app._clear_call_record_detail("Data 目录下暂无通话记录")
+        app._clear_call_record_detail("Data 目录下暂时无通话记录")
         return
     first_iid = ""
     for idx, item in enumerate(items):
@@ -108,6 +115,8 @@ def load_call_records_into_list(app) -> None:
                     item.get("customer_name", "未知客户"),
                     item.get("last_call_time", "-"),
                     item.get("call_cost", "") or "-",
+                    item.get("billing_duration", "") or "-",
+                    item.get("price_per_minute", "") or "-",
                 ),
             )
             app._call_record_item_by_iid[iid] = item
@@ -126,7 +135,7 @@ def load_call_records_into_list(app) -> None:
         app._clear_call_record_detail("记录读取失败")
 
 
-def clear_customer_data_profile_table(app, message: str = "请择左侧通话记录") -> None:
+def clear_customer_data_profile_table(app, message: str = "请选择左侧通话记录") -> None:
     app._customer_data_last_render_key = ""
     tree = app.customer_data_profile_table
     if not isinstance(tree, ttk.Treeview):
@@ -135,7 +144,7 @@ def clear_customer_data_profile_table(app, message: str = "请择左侧通话记
     app._clear_customer_data_call_entry_views(message)
 
 
-def clear_customer_data_call_entry_views(app, message: str = "请择左侧通话记录") -> None:
+def clear_customer_data_call_entry_views(app, message: str = "请选择左侧通话记录") -> None:
     container = app.customer_data_call_entries_wrap
     canvas = app.customer_data_calls_canvas
     if not isinstance(container, ttk.Frame):
@@ -190,8 +199,8 @@ def render_customer_data_call_entry_views(app, records: list[dict[str, str]]) ->
             parent,
             text=title,
             bg=text_bg,
-            fg="#334155",
-            font=("微软雅黑", 9),
+            fg="#000000",
+            font=("Microsoft YaHei", 11),
             bd=1,
             relief="flat",
             padx=8,
@@ -204,7 +213,8 @@ def render_customer_data_call_entry_views(app, records: list[dict[str, str]]) ->
             wrap="word",
             state="normal",
             bg=text_bg,
-            fg="#111827",
+            fg="#000000",
+            font=("Microsoft YaHei", 11),
             relief="flat",
             highlightthickness=1,
             highlightbackground=border_color,
@@ -221,11 +231,11 @@ def render_customer_data_call_entry_views(app, records: list[dict[str, str]]) ->
         divider.pack(fill=tk.X, side=tk.TOP)
         marker = tk.Label(
             toggle_wrap,
-            text="▼展",
+            text="展开",
             cursor="hand2",
             bg=text_bg,
-            fg="#475569",
-            font=("微软雅黑", 9),
+            fg="#000000",
+            font=("Microsoft YaHei", 11),
         )
         marker.pack(side=tk.TOP, pady=(2, 0))
 
@@ -235,7 +245,7 @@ def render_customer_data_call_entry_views(app, records: list[dict[str, str]]) ->
             expanded["value"] = not bool(expanded["value"])
             target_height = expanded_height if expanded["value"] else collapsed_height
             text_widget.configure(height=target_height)
-            marker.configure(text="" if expanded["value"] else "չ")
+            marker.configure(text="收起" if expanded["value"] else "展开")
             if isinstance(canvas, tk.Canvas):
                 canvas.update_idletasks()
                 canvas.configure(scrollregion=canvas.bbox("all"))
@@ -255,8 +265,8 @@ def render_customer_data_call_entry_views(app, records: list[dict[str, str]]) ->
             container,
             text=f"通话记录 {idx + 1}  |  {call_time}",
             bg=text_bg,
-            fg="#1e3a5f",
-            font=("微软雅黑", 9, "bold"),
+            fg="#000000",
+            font=("Microsoft YaHei", 11, "bold"),
             bd=1,
             relief="flat",
             padx=8,
@@ -282,7 +292,7 @@ def render_customer_data_call_entry_views(app, records: list[dict[str, str]]) ->
         )
         _build_collapsible_text_panel(
             parent=card,
-            title="һԻ",
+            title="下一步对话策略",
             content=strategy_content,
             text_bg=text_bg,
             border_color=border_color,
@@ -341,6 +351,9 @@ def build_customer_case_cache_by_name(app) -> dict[str, dict[str, object]]:
                     {
                         "call_time": str(entry.get("call_time", "") or ""),
                         "call_cost": str(entry.get("call_cost", "") or ""),
+                        "billing_duration": str(entry.get("billing_duration", "") or ""),
+                        "billing_duration_seconds": str(entry.get("billing_duration_seconds", "") or ""),
+                        "price_per_minute": str(entry.get("price_per_minute", "") or ""),
                         "call_record": str(entry.get("call_record", "") or ""),
                         "summary": str(entry.get("summary", "") or ""),
                         "commitments": str(entry.get("commitments", "") or ""),
@@ -411,12 +424,12 @@ def prepare_call_context_from_customer_data_and_workflow_page(
 ) -> bool:
     case_data = app._get_selected_customer_case_data(ensure_default_selection=True)
     if not isinstance(case_data, dict):
-        messagebox.showwarning("无客户数据", "请先创建或选择一个客户。")
+        messagebox.showwarning("No customer data", "Please create or select a customer first.")
         return False
 
     profile_text = str(case_data.get("customer_profile", "") or "").strip()
     if not profile_text:
-        messagebox.showwarning("客户画像为空", "当前客户资料缺少客户画像，无法发起呼叫。")
+        messagebox.showwarning("Customer profile required", "Current customer profile is empty, cannot start a call.")
         return False
 
     dialog_profile_tree = app.dialog_profile_table
@@ -437,7 +450,7 @@ def load_customer_data_records_into_list(app) -> None:
     app._customer_data_customer_by_iid.clear()
     app._customer_data_case_cache_by_name = app._build_customer_case_cache_by_name()
     if not app._customer_data_case_cache_by_name:
-        app._clear_customer_data_profile_table("Data 目录下暂无通话记录")
+        app._clear_customer_data_profile_table("Data 目录下暂时无通话记录")
         return
     customer_items: list[tuple[str, str]] = []
     for customer_name, payload in app._customer_data_case_cache_by_name.items():
@@ -460,7 +473,7 @@ def load_customer_data_records_into_list(app) -> None:
                 "",
                 "end",
                 iid=iid,
-                values=(customer_name, "📞"),
+                values=(customer_name, "\u2139", "\u260E"),
             )
             app._customer_data_customer_by_iid[iid] = customer_name
             if not first_iid:
@@ -499,7 +512,7 @@ def on_customer_data_record_selected(app, _event=None) -> None:
         return
     case_data = app._customer_data_case_cache_by_name.get(customer_name)
     if not isinstance(case_data, dict):
-        app._clear_customer_data_profile_table("ͻϻʧЧ½ͻлҳˢ¡")
+        app._clear_customer_data_profile_table("记录失效，请刷新")
         return
     profile_text = str(case_data.get("customer_profile", "") or "")
     records = list(case_data.get("records", []))
@@ -536,7 +549,7 @@ def on_customer_data_tree_click(app, event=None) -> None:
         return
     if col_id == "#1":
         return
-    if col_id != "#2":
+    if col_id not in {"#2", "#3"}:
         return
     current_selected = tree.selection()
     is_selected = bool(current_selected and (current_selected[0] == row_id))
@@ -544,30 +557,35 @@ def on_customer_data_tree_click(app, event=None) -> None:
         tree.selection_set(row_id)
     tree.focus(row_id)
     app._on_customer_data_record_selected()
-
-    # 电话图标点击：加载户的话数捈实时话页?
     customer_name = app._customer_data_customer_by_iid.get(row_id)
-    if customer_name:
-        app._set_dialog_conversation_active_customer(str(customer_name))
-        case_data = app._customer_data_case_cache_by_name.get(customer_name)
-        if isinstance(case_data, dict):
-            profile_text = str(case_data.get("customer_profile", "") or "")
-            dialog_profile_tree = app.dialog_profile_table
-            if isinstance(dialog_profile_tree, ttk.Treeview):
-                app._fill_profile_table_from_text(dialog_profile_tree, profile_text=profile_text, auto_height=True)
-            records = list(case_data.get("records", []))
-            sorted_records = sorted(
-                records,
-                key=lambda item: app._parse_datetime_to_epoch(str(item.get("call_time", "") or "")),
-                reverse=True,
-            )
-            most_recent_call_record = ""
-            for entry in sorted_records:
-                call_record_text = str(entry.get("call_record", "") or "").strip()
-                if call_record_text:
-                    most_recent_call_record = call_record_text
-                    break
-            app._render_dialog_conversation_history(most_recent_call_record, customer_name=str(customer_name))
+    if not customer_name:
+        return
+
+    if col_id == "#2":
+        open_customer_data_detail_window(app, customer_name)
+        return
+
+    # 鐢佃瘽鍥炬爣鐐瑰嚮锛氬姞杞芥埛鐨勮瘽鏁版崍瀹炴椂璇濋〉?
+    app._set_dialog_conversation_active_customer(str(customer_name))
+    case_data = app._customer_data_case_cache_by_name.get(customer_name)
+    if isinstance(case_data, dict):
+        profile_text = str(case_data.get("customer_profile", "") or "")
+        dialog_profile_tree = app.dialog_profile_table
+        if isinstance(dialog_profile_tree, ttk.Treeview):
+            app._fill_profile_table_from_text(dialog_profile_tree, profile_text=profile_text, auto_height=True)
+        records = list(case_data.get("records", []))
+        sorted_records = sorted(
+            records,
+            key=lambda item: app._parse_datetime_to_epoch(str(item.get("call_time", "") or "")),
+            reverse=True,
+        )
+        most_recent_call_record = ""
+        for entry in sorted_records:
+            call_record_text = str(entry.get("call_record", "") or "").strip()
+            if call_record_text:
+                most_recent_call_record = call_record_text
+                break
+        app._render_dialog_conversation_history(most_recent_call_record, customer_name=str(customer_name))
 
     switcher = app._conversation_page_switcher
     if callable(switcher):
@@ -576,15 +594,15 @@ def on_customer_data_tree_click(app, event=None) -> None:
     def _trigger_call_after_switch() -> None:
         ts_text = datetime.now().strftime("%H:%M:%S")
         app._append_line(app.log_text, f"[{ts_text}] [CUSTOMER_DATA] call-icon clicked -> invoke profile call")
-        btn = app.profile_call_btn
-        if isinstance(btn, ttk.Button):
+        start_from_call_icon = getattr(app, "_start_from_customer_data_call_icon", None)
+        if callable(start_from_call_icon):
             try:
-                btn.invoke()
-                app._append_line(app.log_text, f"[{ts_text}] [CUSTOMER_DATA] profile_call_btn.invoke() dispatched")
+                start_from_call_icon()
+                app._append_line(app.log_text, f"[{ts_text}] [CUSTOMER_DATA] start_from_customer_data_call_icon() dispatched")
                 return
             except Exception:
                 pass
-        app._append_line(app.log_text, f"[{ts_text}] [CUSTOMER_DATA] profile_call_btn missing -> fallback start")
+        app._append_line(app.log_text, f"[{ts_text}] [CUSTOMER_DATA] call-icon handler missing -> fallback start")
         app._start_from_conversation_profile()
 
     # Run after page switch is fully reflected to avoid click-event timing issues.
@@ -595,9 +613,136 @@ def on_customer_data_tree_double_click(app, event=None) -> None:
     pass
 
 
+def open_customer_data_detail_window(app, customer_name: str) -> None:
+    case_data = app._customer_data_case_cache_by_name.get(customer_name)
+    profile_text = ""
+    records: list[dict[str, str]] = []
+    if isinstance(case_data, dict):
+        profile_text = str(case_data.get("customer_profile", "") or "")
+        records = list(case_data.get("records", []))
+
+    records.sort(
+        key=lambda item: app._parse_datetime_to_epoch(str(item.get("call_time", "") or "")),
+        reverse=True,
+    )
+    history_lines: list[str] = []
+    for idx, entry in enumerate(records, start=1):
+        call_time = str(entry.get("call_time", "") or "").strip() or "-"
+        call_record = str(entry.get("call_record", "") or "").strip()
+        summary = str(entry.get("summary", "") or "").strip()
+        commitments = str(entry.get("commitments", "") or "").strip()
+        strategy = str(entry.get("strategy", "") or "").strip()
+        parts: list[str] = []
+        if call_record:
+            parts.append(call_record)
+        if summary:
+            parts.append(f"【总结】{summary}")
+        if commitments:
+            parts.append(f"【承诺】{commitments}")
+        if strategy:
+            parts.append(f"【策略】{strategy}")
+        content = "\n".join(parts).strip() or "暂无内容"
+        history_lines.append(f"[{idx}] {call_time}\n{content}")
+    history_text = "\n\n".join(history_lines).strip() or "暂无历史对话信息"
+
+    win = tk.Toplevel(app)
+    win.title(f"客户明细 - {customer_name}")
+    screen_w = max(1, int(app.winfo_screenwidth() or 0))
+    screen_h = max(1, int(app.winfo_screenheight() or 0))
+    win_w = max(900, int(screen_w * 0.8))
+    win_h = max(600, int(screen_h * 0.8))
+    pos_x = max(0, (screen_w - win_w) // 2)
+    pos_y = max(0, (screen_h - win_h) // 2)
+    win.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
+    win.minsize(800, 520)
+    win.configure(bg="#eaf0f7")
+
+    root = ttk.Frame(win, style="App.TFrame", padding=10)
+    root.pack(fill=tk.BOTH, expand=True)
+    panes = ttk.Panedwindow(root, orient=tk.VERTICAL)
+    panes.pack(fill=tk.BOTH, expand=True)
+
+    profile_box = ttk.LabelFrame(panes, text="客户画像", style="ThinSection.TLabelframe", padding=0)
+    profile_wrap = ttk.Frame(profile_box, style="Panel.TFrame")
+    profile_wrap.pack(fill=tk.BOTH, expand=True)
+    profile_wrap.columnconfigure(0, weight=1)
+    profile_wrap.rowconfigure(0, weight=1)
+    profile_table = ttk.Treeview(
+        profile_wrap,
+        columns=("field_1", "value_1", "field_2", "value_2", "field_3", "value_3"),
+        show=[],
+        style="ConversationProfile.Treeview",
+    )
+    for col in ("field_1", "value_1", "field_2", "value_2", "field_3", "value_3"):
+        profile_table.heading(col, text="")
+        profile_table.column(col, minwidth=110, anchor="w", stretch=True)
+    profile_scroll_y = ttk.Scrollbar(
+        profile_wrap,
+        orient=tk.VERTICAL,
+        command=profile_table.yview,
+        style="App.Vertical.TScrollbar",
+    )
+    profile_table.configure(yscrollcommand=profile_scroll_y.set)
+    profile_table.grid(row=0, column=0, sticky="nsew")
+    profile_scroll_y.grid(row=0, column=1, sticky="ns")
+    profile_table.tag_configure("profile_even", background="#eef1f5", foreground="#0f1f35")
+    profile_table.tag_configure("profile_odd", background="#e6e9ee", foreground="#0f1f35")
+    # Keep a fixed table viewport; avoid content-driven height expansion
+    # that can squeeze the history pane.
+    app._fill_profile_table_from_text(profile_table, profile_text=profile_text, auto_height=False)
+    profile_table.bind(
+        "<Configure>",
+        lambda _event, tree=profile_table: app._resize_profile_table_columns(tree),
+        add="+",
+    )
+    panes.add(profile_box, weight=2)
+
+    history_box = ttk.LabelFrame(panes, text="历史对话数据", style="ThinSection.TLabelframe", padding=0)
+    history_wrap = ttk.Frame(history_box, style="Panel.TFrame")
+    history_wrap.pack(fill=tk.BOTH, expand=True)
+    history_wrap.columnconfigure(0, weight=1)
+    history_wrap.rowconfigure(0, weight=1)
+    history_widget = tk.Text(
+        history_wrap,
+        wrap="word",
+        bg="#ffffff",
+        fg="#111827",
+        relief="flat",
+        highlightthickness=0,
+    )
+    history_scroll_y = ttk.Scrollbar(
+        history_wrap,
+        orient=tk.VERTICAL,
+        command=history_widget.yview,
+        style="App.Vertical.TScrollbar",
+    )
+    history_widget.configure(yscrollcommand=history_scroll_y.set)
+    history_widget.grid(row=0, column=0, sticky="nsew")
+    history_scroll_y.grid(row=0, column=1, sticky="ns")
+    history_widget.insert("1.0", history_text)
+    history_widget.configure(state="disabled")
+    panes.add(history_box, weight=3)
+
+    def _set_initial_sash() -> None:
+        try:
+            total_h = int(panes.winfo_height() or 0)
+            if total_h <= 0:
+                panes.after(60, _set_initial_sash)
+                return
+            panes.sashpos(0, int(total_h / 3))
+        except tk.TclError:
+            return
+
+    panes.after_idle(_set_initial_sash)
+    # Re-apply ratio after layout settles and when window size changes.
+    panes.after(120, _set_initial_sash)
+    panes.bind("<Map>", lambda _event: panes.after_idle(_set_initial_sash), add="+")
+    panes.bind("<Configure>", lambda _event: panes.after_idle(_set_initial_sash), add="+")
+
+
 def open_call_record_detail_window(app, record: dict[str, str]) -> None:
     win = tk.Toplevel(app)
-    win.title(f"通话详情 - {record.get('customer_name', '未知客户')}")
+    win.title(f"閫氳瘽璇︽儏 - {record.get('customer_name', '未知客户')}")
     win.geometry("980x700")
     win.configure(bg="#eaf0f7")
 
@@ -620,7 +765,7 @@ def open_call_record_detail_window(app, record: dict[str, str]) -> None:
     commitments_text.configure(state="disabled")
     panes.add(commitments_box, weight=1)
 
-    strategy_box = ttk.LabelFrame(panes, text="下一步对话策略", style="Section.TLabelframe", padding=8)
+    strategy_box = ttk.LabelFrame(panes, text="Next Strategy", style="Section.TLabelframe", padding=8)
     strategy_text = ScrolledText(strategy_box, wrap="word", bg="#ffffff", fg="#111827", relief="flat")
     strategy_text.pack(fill=tk.BOTH, expand=True)
     strategy_text.insert("1.0", record.get("strategy", "") or "暂无内容")
@@ -649,12 +794,12 @@ def on_call_record_call(app) -> None:
         return
     selected = tree.selection()
     if not selected:
-        messagebox.showwarning("未选择记录", "请先选择一条通话记录。")
+        messagebox.showwarning("No record selected", "Please select a call record first.")
         return
     iid = selected[0]
     record = app._call_record_item_by_iid.get(iid)
     if not record:
-        messagebox.showwarning("无效记录", "当前记录不可用。")
+        messagebox.showwarning("Invalid record", "The selected record is unavailable.")
         return
 
     customer_name = str(record.get("customer_name", "") or "")
@@ -665,4 +810,5 @@ def on_call_record_call(app) -> None:
     switcher = app._conversation_page_switcher
     if callable(switcher):
         switcher("profile")
+
 

@@ -24,6 +24,7 @@ RE_NLP_PROMPT = re.compile(r"^\[nlp/prompt\]\s+mode=(?P<mode>.*?)\s+text=(?P<tex
 RE_TTS_SEGMENT = re.compile(r"^\[tts/segment\]\s+seq=(?P<seq>\d+)\s+text=(?P<text>.*)$")
 RE_TTS_INTERRUPTED = re.compile(r"^\[tts\]\s+interrupted\s+trigger=(?P<trigger>.*?)\s+text=(?P<text>.*)$")
 RE_TTS_END = re.compile(r"^\[tts\]\s+end\s+audio_bytes=(?P<audio_bytes>\d+)\s+interrupted=(?P<interrupted>.+)$")
+RE_WS_TTS_FIRST_FRAME = re.compile(r"^\[ws/tts\]\s+first_frame_bytes=(?P<bytes>\d+)$")
 RE_ASSISTANT_TEXT = re.compile(r"^\[assistant\]\s+(?P<text>.*)$")
 RE_INTENT_RESULT = re.compile(r"^\[intent\]\s+(?P<body>\{.*\})$")
 RE_INTENT_PROMPT = re.compile(r"^\[intent/prompt\]\s+(?P<body>\{.*\})$")
@@ -235,6 +236,14 @@ def parse_line(line: str) -> Optional[UiEvent]:
         return UiEvent(
             kind="tts_end",
             payload={"audio_bytes": int(m.group("audio_bytes")), "interrupted": interrupted},
+            raw=text,
+        )
+
+    m = RE_WS_TTS_FIRST_FRAME.match(text)
+    if m:
+        return UiEvent(
+            kind="tts_first_frame",
+            payload={"audio_bytes": int(m.group("bytes"))},
             raw=text,
         )
 

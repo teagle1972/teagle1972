@@ -137,6 +137,8 @@ def _append_dialog_line_to_widget(app, role: str, text: str) -> None:
     start = app.dialog_conversation_text.index("end-1c")
     app.dialog_conversation_text.insert("end", text + "\n")
     app.dialog_conversation_text.tag_add(tag, start, app.dialog_conversation_text.index("end-1c"))
+    if role in {"agent", "customer"}:
+        app.dialog_conversation_text.insert("end", "\n")
     app._trim_scrolled_text(app.dialog_conversation_text, max_lines=800)
     app.dialog_conversation_text.configure(state=prev_state if prev_state in {"normal", "disabled"} else "normal")
     app.dialog_conversation_text.see("end")
@@ -169,6 +171,7 @@ def _render_dialog_entries(app, entries: list[dict[str, str]], *, see: str = "1.
         line = str(item.get("text", ""))
         if not line:
             continue
+        role = item.get("role", "meta")
         tag = _resolve_dialog_history_tag(line)
         # Add 5 blank lines before every "对话开始" marker except the very first one;
         # "对话结束" markers do not get extra blank lines.
@@ -179,6 +182,8 @@ def _render_dialog_entries(app, entries: list[dict[str, str]], *, see: str = "1.
         start = widget.index("end-1c")
         widget.insert("end", line + "\n")
         widget.tag_add(tag, start, widget.index("end-1c"))
+        if role in {"agent", "customer"}:
+            widget.insert("end", "\n")
     if entries:
         # Visual separator between historical and new conversation
         widget.insert("end", "\n\n\n\n\n")
@@ -269,6 +274,9 @@ def reset_runtime_status(app) -> None:
     app._dialog_agent_stream_content_start = ""
     app._asr_stream_active = False
     app._asr_stream_content_start = ""
+    app._last_billing_total_cost = 0.0
+    app._last_billing_duration_seconds = 0.0
+    app._last_billing_price_per_minute = 0.0
     sync_conversation_profile_status(app)
 
 
@@ -607,7 +615,7 @@ def close_dialog_agent_stream_line(app) -> None:
         return
     prev_state = str(app.dialog_conversation_text.cget("state"))
     app.dialog_conversation_text.configure(state="normal")
-    app.dialog_conversation_text.insert("end", "\n")
+    app.dialog_conversation_text.insert("end", "\n\n")
     app._trim_scrolled_text(app.dialog_conversation_text, max_lines=800)
     app.dialog_conversation_text.configure(state=prev_state if prev_state in {"normal", "disabled"} else "normal")
     app.dialog_conversation_text.see("end")

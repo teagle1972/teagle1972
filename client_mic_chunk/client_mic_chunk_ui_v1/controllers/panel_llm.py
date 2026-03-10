@@ -319,10 +319,6 @@ def set_llm_generation_frozen(app, frozen: bool) -> None:
         if app._llm_freeze_depth > 1:
             return
         try:
-            app.wm_attributes("-disabled", True)
-        except Exception:
-            pass
-        try:
             app.configure(cursor="watch")
         except Exception:
             pass
@@ -336,12 +332,6 @@ def set_llm_generation_frozen(app, frozen: bool) -> None:
             app.intent_text,
             app.dialog_conversation_text,
             app.dialog_intent_text,
-            app.conversation_workflow_text,
-            app.conversation_strategy_history_text,
-            app.conversation_strategy_input_text,
-            app.conversation_system_instruction_text,
-            app.conversation_intent_text,
-            app.conversation_customer_profile_text,
         ):
             if not isinstance(widget, (ScrolledText, tk.Text)):
                 continue
@@ -366,10 +356,6 @@ def set_llm_generation_frozen(app, frozen: bool) -> None:
     app._llm_freeze_depth -= 1
     if app._llm_freeze_depth > 0:
         return
-    try:
-        app.wm_attributes("-disabled", False)
-    except Exception:
-        pass
     try:
         app.configure(cursor="")
     except Exception:

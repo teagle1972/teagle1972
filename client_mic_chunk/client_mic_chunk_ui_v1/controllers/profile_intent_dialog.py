@@ -70,8 +70,8 @@ def _render_customer_profile_bubble(
         widest = max(widest, int(font.measure(line)))
     bubble_w = min(max_bubble_width, max(190, widest + 26))
     bubble_h = max(40, int(len(content.split("\n")) * line_h + 24))
-    fill = "#e9eef3" if is_right else "#f4f8ee"
-    edge = "#c7d0db" if is_right else "#c8d7ba"
+    fill = "#e9eef3" if is_right else str(history_widget.cget("bg"))
+    edge = "#c7d0db" if is_right else ""
     canvas.configure(
         width=bubble_w + 2,
         height=bubble_h + 2,
@@ -188,7 +188,7 @@ def render_conversation_customer_profile_dialog_history(app, dialog: dict[str, o
         history_widget.insert("end", "暂无历史记录\n", ("cs_hint",))
     else:
         width = int(history_widget.winfo_width() or history_widget.winfo_reqwidth() or 900)
-        max_bubble_width = max(240, int(width * (2.0 / 3.0)) - 28)
+        max_bubble_width = max(width // 2, int(width * (2.0 / 3.0)) - 28)
         for idx, item in enumerate(history, start=1):
             instruction = str(item.get("instruction", "") or "-")
             response = str(item.get("response", "") or "-")
@@ -203,6 +203,7 @@ def render_conversation_customer_profile_dialog_history(app, dialog: dict[str, o
                 max_width_px=max_bubble_width,
             )
             history_widget.insert("end", f"{wrapped_instruction}\n\n", ("cs_right_bubble",))
+            history_widget.insert("end", "\n")
             history_widget.insert("end", f"{wrapped_response}\n\n", ("cs_left_bubble",))
     history_widget.configure(state="normal")
     history_widget.see("end")
@@ -271,7 +272,7 @@ def render_conversation_intent_dialog_history(app, dialog: dict[str, object]) ->
         history_widget.insert("end", "暂无历史记录\n", ("cs_hint",))
     else:
         width = int(history_widget.winfo_width() or history_widget.winfo_reqwidth() or 900)
-        max_bubble_width = max(240, int(width * (2.0 / 3.0)) - 28)
+        max_bubble_width = max(width // 2, int(width * (2.0 / 3.0)) - 28)
         for idx, item in enumerate(history, start=1):
             instruction = str(item.get("instruction", "") or "-")
             response = str(item.get("response", "") or "-")
@@ -286,6 +287,7 @@ def render_conversation_intent_dialog_history(app, dialog: dict[str, object]) ->
                 max_width_px=max_bubble_width,
             )
             history_widget.insert("end", f"{wrapped_instruction}\n\n", ("cs_right_bubble",))
+            history_widget.insert("end", "\n")
             history_widget.insert("end", f"{wrapped_response}\n\n", ("cs_left_bubble",))
     history_widget.configure(state="normal")
     history_widget.see("end")
@@ -567,6 +569,7 @@ def generate_conversation_customer_profile_in_dialog(app) -> None:
         f"{instruction_text}\n\n",
         "cs_right_bubble",
     )
+    output_widget.insert("end", "\n")
     dialog["live_response_start"] = output_widget.index("end-1c")
     dialog["live_response_phase"] = "thinking"
     app._append_text_to_widget_with_tag(output_widget, "思考中...\n", "cs_left_bubble")
@@ -938,6 +941,7 @@ def generate_conversation_intent_in_dialog(app) -> None:
         f"{instruction_text}\n\n",
         "cs_right_bubble",
     )
+    output_widget.insert("end", "\n")
     dialog["live_response_start"] = output_widget.index("end-1c")
     dialog["live_response_phase"] = "thinking"
     app._append_text_to_widget_with_tag(output_widget, "思考中...\n", "cs_left_bubble")
