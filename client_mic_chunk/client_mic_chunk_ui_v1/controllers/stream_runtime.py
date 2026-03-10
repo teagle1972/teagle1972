@@ -7,6 +7,7 @@ from tkinter.scrolledtext import ScrolledText
 
 _DIALOG_DEFAULT_CUSTOMER_KEY = "__default__"
 
+
 # Session separator — marks the boundary between conversation sessions on disk and in widget
 _SESS_SEP_RE = re.compile(r"^-{10,}")
 _SESS_SEP_DASHES = "-" * 41
@@ -499,7 +500,13 @@ def append_dialog_session_marker(app, marker_text: str, *, blank_lines_before: i
         return
     prev_state = str(widget.cget("state"))
     widget.configure(state="normal")
-    for _ in range(max(0, int(blank_lines_before))):
+    # Ensure marker is always on a new line even if previous stream line
+    # did not end with '\n' yet.
+    try:
+        tail = widget.get("end-2c", "end-1c")
+    except Exception:
+        tail = ""
+    if tail and tail != "\n":
         widget.insert("end", "\n")
     start = widget.index("end-1c")
     widget.insert("end", marker + "\n")

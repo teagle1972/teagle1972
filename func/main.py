@@ -2857,92 +2857,10 @@ async def _stream_tts_audio(
             should_retry = total_audio_bytes <= 0 and retry_index < len(TTS_RETRY_DELAYS_SECONDS)
             attempt_reason = "unexpected_error"
         finally:
-            session_finished_seen = False
-            if tts_iter_obj is not None and (interrupted or tts_usage_seen_total <= 0):
-                finish_event_code = 152
-                max_attempts = 1 + max(0, TTS_SESSION_FINISH_RETRY_COUNT)
-                for attempt_idx in range(max_attempts):
-                    stream_exhausted = False
-                    if attempt_idx > 0:
-                        send_finish_fn = getattr(tts_client, "_send_finish_session", None)
-                        if callable(send_finish_fn):
-                            try:
-                                send_finish_result = send_finish_fn()
-                                if inspect.isawaitable(send_finish_result):
-                                    await asyncio.wait_for(send_finish_result, timeout=1.0)
-                                logger.info(
-                                    "tts finish_session resent session_id=%s attempt=%s",
-                                    session_id,
-                                    attempt_idx + 1,
-                                )
-                            except Exception:
-                                logger.exception(
-                                    "tts finish_session resend failed session_id=%s attempt=%s",
-                                    session_id,
-                                    attempt_idx + 1,
-                                )
-                    wait_budget = (
-                        max(0.2, TTS_SESSION_FINISH_WAIT_SECONDS)
-                        if attempt_idx == 0
-                        else max(0.2, TTS_SESSION_FINISH_RETRY_WAIT_SECONDS)
-                    )
-                    wait_deadline = time.monotonic() + wait_budget
-                    while time.monotonic() < wait_deadline:
-                        if pending_chunk_task is None:
-                            pending_chunk_task = asyncio.create_task(tts_iter_obj.__anext__())
-                        wait_timeout = min(0.4, max(0.01, wait_deadline - time.monotonic()))
-                        done, _ = await asyncio.wait({pending_chunk_task}, timeout=wait_timeout)
-                        if not done:
-                            continue
-                        try:
-                            chunk = pending_chunk_task.result()
-                            pending_chunk_task = None
-                        except StopAsyncIteration:
-                            pending_chunk_task = None
-                            stream_exhausted = True
-                            break
-                        except Exception:
-                            pending_chunk_task = None
-                            break
-
-                        if on_tts_usage is not None:
-                            try:
-                                raw_chars = _extract_tts_usage_chars(chunk)
-                                if raw_chars > 0:
-                                    if raw_chars >= tts_usage_seen_total:
-                                        delta_chars = raw_chars - tts_usage_seen_total
-                                        tts_usage_seen_total = raw_chars
-                                    else:
-                                        delta_chars = raw_chars
-                                    if delta_chars > 0:
-                                        on_tts_usage(delta_chars)
-                            except Exception:
-                                pass
-
-                        chunk_event = int(getattr(chunk, "event", 0) or 0)
-                        if chunk_event == finish_event_code or getattr(chunk, "usage", None) is not None:
-                            session_finished_seen = True
-                            logger.info(
-                                "tts session_finished received session_id=%s event=%s usage=%s",
-                                session_id,
-                                chunk_event,
-                                getattr(chunk, "usage", None),
-                            )
-                            break
-                    if session_finished_seen:
-                        break
-                    if stream_exhausted:
-                        logger.warning(
-                            "tts stream exhausted before session_finished session_id=%s attempt=%s",
-                            session_id,
-                            attempt_idx + 1,
-                        )
-                if not session_finished_seen:
-                    logger.warning(
-                        "tts session_finished wait timeout session_id=%s attempts=%s",
-                        session_id,
-                        max_attempts,
-                    )
+            # We prioritize interruption handoff latency over final TTS usage collection.
+            # Do not block on session_finished after interruption; close immediately.
+            if interrupted and tts_iter_obj is not None:
+                logger.info("skip tts session_finished wait after interrupt session_id=%s", session_id)
 
             if pending_chunk_task is not None and not pending_chunk_task.done():
                 pending_chunk_task.cancel()

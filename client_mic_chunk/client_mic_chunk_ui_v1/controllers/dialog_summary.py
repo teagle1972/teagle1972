@@ -162,7 +162,7 @@ def build_dialog_summary_llm_prompt(
 ) -> str:
     hint = str(extra_hint or "").strip()
     hint_block = f"\n\n重点关注：{hint}" if hint else ""
-    template = str(template_text or "").strip() or DEFAULT_DIALOG_SUMMARY_PROMPT_TEMPLATE
+    template = str(template_text or "").strip()
     rendered = _render_prompt_template(template, extra_hint=hint, extra_hint_block=hint_block)
     conv = (conversation_text or "").strip()
     return rendered.rstrip() + f"\n\n对话内容如下：\n{conv}{hint_block}"
@@ -202,7 +202,7 @@ def build_next_dialog_strategy_llm_prompt(
 ) -> str:
     hint = str(extra_hint or "").strip()
     hint_block = f"\n\n重点关注：{hint}" if hint else ""
-    template = str(template_text or "").strip() or DEFAULT_NEXT_DIALOG_STRATEGY_PROMPT_TEMPLATE
+    template = str(template_text or "").strip()
     rendered = _render_prompt_template(template, extra_hint=hint, extra_hint_block=hint_block)
     conv = (conversation_text or "").strip()
     commitment = (commitment_confirmation_text or "").strip() or "暂无"

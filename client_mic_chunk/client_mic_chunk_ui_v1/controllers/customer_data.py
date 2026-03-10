@@ -90,6 +90,8 @@ def apply_call_record_profile_and_workflow(app, record: dict[str, str]) -> None:
     dialog_profile_tree = app.dialog_profile_table
     if isinstance(dialog_profile_tree, ttk.Treeview):
         app._fill_profile_table_from_text(dialog_profile_tree, profile_text=profile_text, auto_height=True)
+    if isinstance(app.conversation_customer_profile_text, ScrolledText):
+        app._set_text_content(app.conversation_customer_profile_text, profile_text)
     app._refresh_runtime_system_prompt_only()
 
 
@@ -435,6 +437,8 @@ def prepare_call_context_from_customer_data_and_workflow_page(
     dialog_profile_tree = app.dialog_profile_table
     if isinstance(dialog_profile_tree, ttk.Treeview):
         app._fill_profile_table_from_text(dialog_profile_tree, profile_text=profile_text, auto_height=True)
+    if isinstance(app.conversation_customer_profile_text, ScrolledText):
+        app._set_text_content(app.conversation_customer_profile_text, profile_text)
     app._refresh_runtime_system_prompt_only()
     return True
 
@@ -625,8 +629,10 @@ def open_customer_data_detail_window(app, customer_name: str) -> None:
         key=lambda item: app._parse_datetime_to_epoch(str(item.get("call_time", "") or "")),
         reverse=True,
     )
-    history_lines: list[str] = []
-    for idx, entry in enumerate(records, start=1):
+    # 构建每条记录的详情文本列表（与 records 保持同顺序）
+    record_times: list[str] = []
+    record_contents: list[str] = []
+    for entry in records:
         call_time = str(entry.get("call_time", "") or "").strip() or "-"
         call_record = str(entry.get("call_record", "") or "").strip()
         summary = str(entry.get("summary", "") or "").strip()
@@ -641,9 +647,8 @@ def open_customer_data_detail_window(app, customer_name: str) -> None:
             parts.append(f"【承诺】{commitments}")
         if strategy:
             parts.append(f"【策略】{strategy}")
-        content = "\n".join(parts).strip() or "暂无内容"
-        history_lines.append(f"[{idx}] {call_time}\n{content}")
-    history_text = "\n\n".join(history_lines).strip() or "暂无历史对话信息"
+        record_times.append(call_time)
+        record_contents.append("\n".join(parts).strip() or "暂无内容")
 
     win = tk.Toplevel(app)
     win.title(f"客户明细 - {customer_name}")
@@ -700,18 +705,55 @@ def open_customer_data_detail_window(app, customer_name: str) -> None:
     history_box = ttk.LabelFrame(panes, text="历史对话数据", style="ThinSection.TLabelframe", padding=0)
     history_wrap = ttk.Frame(history_box, style="Panel.TFrame")
     history_wrap.pack(fill=tk.BOTH, expand=True)
-    history_wrap.columnconfigure(0, weight=1)
-    history_wrap.rowconfigure(0, weight=1)
+
+    # 左右分栏：左侧对话时间列表 + 右侧详情文本
+    history_hpanes = ttk.Panedwindow(history_wrap, orient=tk.HORIZONTAL)
+    history_hpanes.pack(fill=tk.BOTH, expand=True)
+
+    # 左侧：对话时间列表
+    time_list_frame = ttk.Frame(history_hpanes, style="Panel.TFrame")
+    time_list_frame.columnconfigure(0, weight=1)
+    time_list_frame.rowconfigure(0, weight=1)
+    time_listbox = tk.Listbox(
+        time_list_frame,
+        selectmode=tk.SINGLE,
+        bg="#f0f4f8",
+        fg="#0f1f35",
+        selectbackground="#2563eb",
+        selectforeground="#ffffff",
+        relief="flat",
+        highlightthickness=0,
+        borderwidth=0,
+        activestyle="none",
+    )
+    time_scroll_y = ttk.Scrollbar(
+        time_list_frame,
+        orient=tk.VERTICAL,
+        command=time_listbox.yview,
+        style="App.Vertical.TScrollbar",
+    )
+    time_listbox.configure(yscrollcommand=time_scroll_y.set)
+    time_listbox.grid(row=0, column=0, sticky="nsew")
+    time_scroll_y.grid(row=0, column=1, sticky="ns")
+    for t in record_times:
+        time_listbox.insert(tk.END, t)
+    history_hpanes.add(time_list_frame, weight=1)
+
+    # 右侧：详情文本
+    detail_frame = ttk.Frame(history_hpanes, style="Panel.TFrame")
+    detail_frame.columnconfigure(0, weight=1)
+    detail_frame.rowconfigure(0, weight=1)
     history_widget = tk.Text(
-        history_wrap,
+        detail_frame,
         wrap="word",
         bg="#ffffff",
         fg="#111827",
         relief="flat",
         highlightthickness=0,
+        state="disabled",
     )
     history_scroll_y = ttk.Scrollbar(
-        history_wrap,
+        detail_frame,
         orient=tk.VERTICAL,
         command=history_widget.yview,
         style="App.Vertical.TScrollbar",
@@ -719,8 +761,27 @@ def open_customer_data_detail_window(app, customer_name: str) -> None:
     history_widget.configure(yscrollcommand=history_scroll_y.set)
     history_widget.grid(row=0, column=0, sticky="nsew")
     history_scroll_y.grid(row=0, column=1, sticky="ns")
-    history_widget.insert("1.0", history_text)
-    history_widget.configure(state="disabled")
+    history_hpanes.add(detail_frame, weight=4)
+
+    def _on_time_select(_event=None) -> None:
+        sel = time_listbox.curselection()
+        if not sel:
+            return
+        content = record_contents[sel[0]] if sel[0] < len(record_contents) else "暂无内容"
+        history_widget.configure(state="normal")
+        history_widget.delete("1.0", "end")
+        history_widget.insert("1.0", content)
+        history_widget.configure(state="disabled")
+        history_widget.yview_moveto(0.0)
+
+    time_listbox.bind("<<ListboxSelect>>", _on_time_select)
+
+    # 默认选中最新一条记录
+    if record_times:
+        time_listbox.selection_set(0)
+        time_listbox.activate(0)
+        _on_time_select()
+
     panes.add(history_box, weight=3)
 
     def _set_initial_sash() -> None:

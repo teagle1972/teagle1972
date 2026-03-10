@@ -273,12 +273,12 @@ def capture_conversation_tab_snapshot(app, tab_id: str) -> dict[str, str]:
             app.conversation_summary_prompt_text.get("1.0", "end-1c")
             if isinstance(app.conversation_summary_prompt_text, ScrolledText)
             else ""
-        ) or app._dialog_summary_prompt_template_cache
+        )
         strategy_prompt = (
             app.conversation_strategy_prompt_text.get("1.0", "end-1c")
             if isinstance(app.conversation_strategy_prompt_text, ScrolledText)
             else ""
-        ) or app._dialog_strategy_prompt_template_cache
+        )
         return {
             "command": app.conversation_command_var.get(),
             "env": app.conversation_server_env_var.get(),
@@ -449,15 +449,11 @@ def apply_conversation_tab_snapshot(
         if isinstance(app.dialog_profile_table, ttk.Treeview):
             app._fill_profile_table_from_text(app.dialog_profile_table, snapshot.get("profile", ""), auto_height=True)
         summary_prompt = str(snapshot.get("dialog_summary_prompt", "") or "").strip()
-        if summary_prompt:
-            app._dialog_summary_prompt_template_cache = summary_prompt
-            if isinstance(app.conversation_summary_prompt_text, ScrolledText):
-                app._set_text_content(app.conversation_summary_prompt_text, summary_prompt)
+        if isinstance(app.conversation_summary_prompt_text, ScrolledText):
+            app._set_text_content(app.conversation_summary_prompt_text, summary_prompt)
         strategy_prompt = str(snapshot.get("dialog_strategy_prompt", "") or "").strip()
-        if strategy_prompt:
-            app._dialog_strategy_prompt_template_cache = strategy_prompt
-            if isinstance(app.conversation_strategy_prompt_text, ScrolledText):
-                app._set_text_content(app.conversation_strategy_prompt_text, strategy_prompt)
+        if isinstance(app.conversation_strategy_prompt_text, ScrolledText):
+            app._set_text_content(app.conversation_strategy_prompt_text, strategy_prompt)
         app._sync_conversation_server_env_from_command(app.conversation_command_var.get().strip())
 
 
@@ -497,15 +493,84 @@ def get_conversation_tab_snapshot_path(app, tab_id: str) -> Path | None:
     return data_dir / "_ui_tab_snapshot.json"
 
 
+
+# 需要跨会话持久化的配置字段（不含运行时/会话数据）
+_SNAPSHOT_PERSIST_KEYS = (
+    "command",
+    "env",
+    "system_instruction",
+    "strategy",              # conversation_workflow_text（工作流策略）
+    "intent",                # conversation_intent_text（意图标签）
+    "workflow_profile",      # conversation_customer_profile_text（客户个人画像）
+    "dialog_summary_prompt", # 摘要提示词模板
+    "dialog_strategy_prompt",# 策略提示词模板
+)
+
+
 def save_persisted_conversation_tab_snapshots(app) -> None:
-    # Disabled by product requirement: realtime-conversation subwindows
-    # should not persist values between launches.
-    return
+    """将每个 Tab 的配置型字段写入各自的 _ui_tab_snapshot.json，供下次启动恢复。"""
+    for tab_id, context in app._conversation_tabs.items():
+        snapshot_path = app._get_conversation_tab_snapshot_path(tab_id)
+        if snapshot_path is None:
+            continue
+        with app._using_conversation_tab_context(tab_id):
+            full_snapshot = app._capture_conversation_tab_snapshot(tab_id)
+        persist_data = {k: full_snapshot.get(k, "") for k in _SNAPSHOT_PERSIST_KEYS}
+        try:
+            snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+            snapshot_path.write_text(
+                json.dumps(persist_data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
 
 
 def load_persisted_conversation_tab_snapshots(app) -> None:
-    # Disabled by product requirement: do not restore snapshot values.
-    return
+    """启动时为每个已创建的 Tab 从 _ui_tab_snapshot.json 恢复配置型字段。"""
+    for tab_id, context in app._conversation_tabs.items():
+        snapshot_path = app._get_conversation_tab_snapshot_path(tab_id)
+        if not (isinstance(snapshot_path, Path) and snapshot_path.exists()):
+            continue
+        try:
+            raw = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(raw, dict):
+            continue
+        with app._using_conversation_tab_context(tab_id):
+            command_val = str(raw.get("command", "") or "")
+            if command_val:
+                app.conversation_command_var.set(command_val)
+            env_val = (str(raw.get("env", "") or "")).strip().lower()
+            if env_val in {"local", "public"}:
+                app.conversation_server_env_var.set(env_val)
+            if isinstance(app.conversation_system_instruction_text, ScrolledText):
+                val = str(raw.get("system_instruction", "") or "")
+                if val:
+                    app._set_text_content(app.conversation_system_instruction_text, val)
+            if isinstance(app.conversation_customer_profile_text, ScrolledText):
+                val = str(raw.get("workflow_profile", "") or "")
+                if val:
+                    app._set_text_content(app.conversation_customer_profile_text, val)
+            if isinstance(app.conversation_workflow_text, ScrolledText):
+                val = str(raw.get("strategy", "") or "")
+                if val:
+                    app._set_text_content(app.conversation_workflow_text, val)
+            if isinstance(app.conversation_intent_text, ScrolledText):
+                val = str(raw.get("intent", "") or "")
+                if val:
+                    app._set_text_content(app.conversation_intent_text, val)
+            summary_prompt = str(raw.get("dialog_summary_prompt", "") or "")
+            if isinstance(app.conversation_summary_prompt_text, ScrolledText):
+                app._set_text_content(app.conversation_summary_prompt_text, summary_prompt)
+            strategy_prompt = str(raw.get("dialog_strategy_prompt", "") or "")
+            if isinstance(app.conversation_strategy_prompt_text, ScrolledText):
+                app._set_text_content(app.conversation_strategy_prompt_text, strategy_prompt)
+            try:
+                app._refresh_runtime_system_prompt_only()
+            except Exception:
+                pass
 
 
 def write_conversation_tab_meta(app, data_dir: Path, title: str) -> None:
@@ -540,6 +605,7 @@ def create_conversation_tab_internal(
     normalized_title = app._build_unique_conversation_tab_title(tab_title)
     source_id = source_tab_id or app._conversation_template_tab_id or app._active_conversation_tab_id
     snapshot = app._capture_conversation_tab_snapshot(source_id)
+    # 新 Tab 的工作流程页面全部从空白开始，不从模版继承任何数据。
     for _key in (
         "system_instruction", "workflow_profile", "strategy", "strategy_input",
         "intent", "dialog_intent", "conversation",
@@ -602,6 +668,7 @@ def create_conversation_tab_from_settings(app) -> None:
         if tab_id not in app._conversation_tabs:
             return
         with app._using_conversation_tab_context(tab_id):
+            # 新 Tab 工作流程页面全部清空，不继承模版数据。
             if isinstance(app.conversation_customer_profile_text, ScrolledText):
                 app._set_text_content(app.conversation_customer_profile_text, "")
             if isinstance(app.conversation_system_instruction_text, ScrolledText):

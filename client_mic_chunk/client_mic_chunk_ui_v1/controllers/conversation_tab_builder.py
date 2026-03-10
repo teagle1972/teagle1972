@@ -588,8 +588,6 @@ def build_conversation_tab(
             strategy_text_value = conversation_strategy_prompt_text.get("1.0", "end-1c").strip()
         except Exception:
             strategy_text_value = ""
-        self._dialog_summary_prompt_template_cache = summary_text or self._dialog_summary_prompt_template_cache
-        self._dialog_strategy_prompt_template_cache = strategy_text_value or self._dialog_strategy_prompt_template_cache
 
     for editor in (conversation_summary_prompt_text, conversation_strategy_prompt_text):
         editor.bind("<KeyRelease>", _on_prompt_templates_edited, add="+")

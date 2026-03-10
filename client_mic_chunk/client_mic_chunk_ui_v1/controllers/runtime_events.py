@@ -368,6 +368,28 @@ def handle_event(
         app._current_session_customer_lines = []
         app._current_session_dialog_lines = []
         app._current_agent_stream_text = ""
+        # 新对话开始：清空客户意图与计费信息窗口
+        for _wname in ("intent_text", "intent_system_text", "intent_prompt_text", "dialog_intent_text"):
+            _w = getattr(app, _wname, None)
+            if _w is not None:
+                try:
+                    app._clear_text(_w)
+                except Exception:
+                    pass
+        billing_text = getattr(app, "dialog_billing_text", None)
+        if billing_text is not None:
+            try:
+                app._clear_text(billing_text)
+            except Exception:
+                pass
+        for _tname in ("dialog_billing_table", "dialog_intent_table"):
+            _t = getattr(app, _tname, None)
+            if _t is not None:
+                try:
+                    for iid in _t.get_children():
+                        _t.delete(iid)
+                except Exception:
+                    pass
         app._refresh_dialog_intent_queue_view()
         app._append_line(app.log_text, f"[{ts_text}] process started: {event.payload.get('command', '')}")
         return

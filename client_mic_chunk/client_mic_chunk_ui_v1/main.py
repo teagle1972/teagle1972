@@ -79,8 +79,6 @@ try:
         pop_next_buffered_event as ctrl_pop_next_buffered_event,
     )
     from .controllers.dialog_summary import (
-        DEFAULT_DIALOG_SUMMARY_PROMPT_TEMPLATE,
-        DEFAULT_NEXT_DIALOG_STRATEGY_PROMPT_TEMPLATE,
         build_dialog_summary_llm_prompt as ctrl_build_dialog_summary_llm_prompt,
         build_dialog_summary_text as ctrl_build_dialog_summary_text,
         build_next_dialog_strategy_llm_prompt as ctrl_build_next_dialog_strategy_llm_prompt,
@@ -284,8 +282,6 @@ except Exception:
         pop_next_buffered_event as ctrl_pop_next_buffered_event,
     )
     from controllers.dialog_summary import (
-        DEFAULT_DIALOG_SUMMARY_PROMPT_TEMPLATE,
-        DEFAULT_NEXT_DIALOG_STRATEGY_PROMPT_TEMPLATE,
         build_dialog_summary_llm_prompt as ctrl_build_dialog_summary_llm_prompt,
         build_dialog_summary_text as ctrl_build_dialog_summary_text,
         build_next_dialog_strategy_llm_prompt as ctrl_build_next_dialog_strategy_llm_prompt,
@@ -858,8 +854,6 @@ class MicChunkUiApp(tk.Tk):
         self.conversation_customer_profile_text: ScrolledText | None = None
         self.conversation_summary_prompt_text: ScrolledText | None = None
         self.conversation_strategy_prompt_text: ScrolledText | None = None
-        self._dialog_summary_prompt_template_cache: str = DEFAULT_DIALOG_SUMMARY_PROMPT_TEMPLATE
-        self._dialog_strategy_prompt_template_cache: str = DEFAULT_NEXT_DIALOG_STRATEGY_PROMPT_TEMPLATE
         self._conversation_workflow_syncing = False
         self._conversation_strategy_history: list[dict[str, str]] = []
         self._conversation_customer_profile_history: list[dict[str, str]] = []
@@ -1389,6 +1383,120 @@ class MicChunkUiApp(tk.Tk):
             self._append_line(self.log_text, f"[{ts_text}] [WHOAMI] failed: {exc}")
             messagebox.showerror("Whoami失败", str(exc))
 
+    @staticmethod
+    def _probe_public_ip(*, use_env_proxy: bool) -> tuple[str, str]:
+        urls = [
+            "https://api.ipify.org?format=json",
+            "https://httpbin.org/ip",
+            "https://ifconfig.me/ip",
+        ]
+        session = requests.Session()
+        session.trust_env = bool(use_env_proxy)
+        if use_env_proxy:
+            proxies = None
+        else:
+            proxies = {"http": None, "https": None}
+        last_error = ""
+        try:
+            for url in urls:
+                try:
+                    resp = session.get(url, timeout=3.5, proxies=proxies)
+                    text = (resp.text or "").strip()
+                    if resp.status_code != 200:
+                        last_error = f"HTTP {resp.status_code} @ {url}"
+                        continue
+                    ip_value = ""
+                    try:
+                        payload = resp.json()
+                        if isinstance(payload, dict):
+                            if isinstance(payload.get("ip"), str):
+                                ip_value = payload.get("ip", "").strip()
+                            elif isinstance(payload.get("origin"), str):
+                                ip_value = payload.get("origin", "").strip()
+                    except Exception:
+                        pass
+                    if (not ip_value) and text:
+                        ip_value = " ".join(text.split())
+                    if ip_value:
+                        return ip_value, url
+                    last_error = f"empty body @ {url}"
+                except Exception as exc:
+                    last_error = f"{url}: {exc}"
+                    continue
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+        return "", last_error or "probe failed"
+
+    def _request_network_probe_from_settings(self) -> None:
+        ts_text = datetime.now().strftime("%H:%M:%S")
+        base_url = self._resolve_whoami_base_url() or "https://example.com"
+        proxy_keys = (
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+            "no_proxy",
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "NO_PROXY",
+        )
+        env_proxy = {k: str(os.environ.get(k, "") or "").strip() for k in proxy_keys}
+        env_proxy = {k: v for k, v in env_proxy.items() if v}
+        request_proxy = requests.utils.get_environ_proxies(base_url) or {}
+        self._append_line(self.log_text, f"[{ts_text}] [NET] probe start base={base_url}")
+        try:
+            ip_with_proxy, src_with = self._probe_public_ip(use_env_proxy=True)
+            ip_direct, src_direct = self._probe_public_ip(use_env_proxy=False)
+            proxy_env_on = bool(env_proxy)
+            request_proxy_on = bool(request_proxy)
+            same_ip = bool(ip_with_proxy and ip_direct and ip_with_proxy == ip_direct)
+            different_ip = bool(ip_with_proxy and ip_direct and ip_with_proxy != ip_direct)
+            likely_proxy = False
+            status_text = "未知"
+            if different_ip and request_proxy_on:
+                likely_proxy = True
+                status_text = "是（代理出口与直连出口不同）"
+            elif same_ip and request_proxy_on:
+                status_text = "可能未生效（已配置代理但出口IP一致）"
+            elif request_proxy_on and (ip_with_proxy and (not ip_direct)):
+                likely_proxy = True
+                status_text = "是（代理可达，直连探测失败）"
+            elif request_proxy_on:
+                status_text = "可能是（检测信息不足）"
+            else:
+                status_text = "否（未检测到代理配置）"
+
+            payload = {
+                "proxy_env_on": proxy_env_on,
+                "request_proxy_on": request_proxy_on,
+                "likely_proxy_in_use": likely_proxy,
+                "ip_via_env_proxy": ip_with_proxy,
+                "ip_via_direct": ip_direct,
+                "probe_src_via_proxy": src_with,
+                "probe_src_via_direct": src_direct,
+                "request_proxy": request_proxy,
+                "env_proxy": env_proxy,
+            }
+            self._append_line(self.log_text, f"[{ts_text}] [NET] result {json.dumps(payload, ensure_ascii=False)}")
+            messagebox.showinfo(
+                "网络检测",
+                (
+                    f"是否走代理: {status_text}\n\n"
+                    f"代理出口IP: {ip_with_proxy or '-'}\n"
+                    f"直连出口IP: {ip_direct or '-'}\n"
+                    f"代理探测: {src_with or '-'}\n"
+                    f"直连探测: {src_direct or '-'}\n"
+                    f"requests代理配置: {'有' if request_proxy_on else '无'}\n"
+                    f"环境变量代理: {'有' if proxy_env_on else '无'}"
+                ),
+            )
+        except Exception as exc:
+            self._append_line(self.log_text, f"[{ts_text}] [NET] failed: {exc}")
+            messagebox.showerror("网络检测失败", str(exc))
+
     def _delete_selected_conversation_tab_from_settings(self) -> None:
         ctrl_delete_selected_conversation_tab_from_settings(self)
 
@@ -1698,13 +1806,28 @@ class MicChunkUiApp(tk.Tk):
 
     def _open_customer_call_overlay(self) -> None:
         self._close_customer_call_overlay()
+
+        # 同步加载背景图片，确保窗口直接以正确尺寸打开
+        bg_path = Path(__file__).resolve().parent / "1.png"
+        bg_image: tk.PhotoImage | None = None
+        try:
+            bg_image = tk.PhotoImage(file=str(bg_path))
+        except Exception:
+            bg_image = None
+        self._call_overlay_bg_image = bg_image
+
+        if bg_image is not None:
+            _default_w = bg_image.width()
+            _default_h = bg_image.height()
+        else:
+            _default_w, _default_h = 320, 180
+
         win = tk.Toplevel(self)
         win.title("Call Overlay")
         win.attributes("-topmost", True)
         win.resizable(False, False)
         win.configure(bg="#000000")
 
-        _default_w, _default_h = 320, 180
         screen_w = int(self.winfo_screenwidth() or 1600)
         screen_h = int(self.winfo_screenheight() or 900)
         pos_x = max(0, int((screen_w - _default_w) / 2))
@@ -1713,13 +1836,16 @@ class MicChunkUiApp(tk.Tk):
         win.lift()
 
         # Canvas covers entire window; text items have no background → transparent
-        canvas = tk.Canvas(win, bg="#000000", highlightthickness=0, bd=0)
+        canvas = tk.Canvas(win, bg="#000000", highlightthickness=0, bd=0,
+                           width=_default_w, height=_default_h)
         canvas.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
 
         cx, cy = _default_w // 2, int(_default_h * 0.40)
         sx, sy = _default_w // 2, int(_default_h * 0.92)
 
         bg_item = canvas.create_image(0, 0, anchor="nw")
+        if bg_image is not None:
+            canvas.itemconfig(bg_item, image=bg_image)
         calling_item = canvas.create_text(
             cx, cy,
             text="正在呼叫",
@@ -1747,35 +1873,6 @@ class MicChunkUiApp(tk.Tk):
         self._call_overlay_canvas_status_item = status_item
         self._call_overlay_calling_anim_id = None
         self._call_overlay_calling_step = 0
-
-        # Deferred image load — window appears immediately with black bg
-        bg_path = Path(__file__).resolve().parent / "1.png"
-
-        def _load_image():
-            if not win.winfo_exists():
-                return
-            try:
-                img = tk.PhotoImage(file=str(bg_path))
-            except Exception:
-                img = None
-            self._call_overlay_bg_image = img
-            if img is not None:
-                img_w = img.width()
-                img_h = img.height()
-                pos_x2 = max(0, int((screen_w - img_w) / 2))
-                pos_y2 = max(0, int((screen_h - img_h) / 2))
-                win.geometry(f"{img_w}x{img_h}+{pos_x2}+{pos_y2}")
-                canvas.configure(width=img_w, height=img_h)
-                canvas.itemconfig(bg_item, image=img)
-                # Reposition text to new dimensions
-                new_cx = img_w // 2
-                new_cy = int(img_h * 0.40)
-                new_sx = img_w // 2
-                new_sy = int(img_h * 0.92)
-                canvas.coords(calling_item, new_cx, new_cy)
-                canvas.coords(status_item, new_sx, new_sy)
-
-        win.after_idle(_load_image)
 
         # Bounce animation: 8-frame vertical sine approximation at 120 ms/frame
         _BOUNCE_Y = [0, -5, -9, -12, -13, -12, -9, -5]
@@ -3210,11 +3307,6 @@ class MicChunkUiApp(tk.Tk):
     def _save_dialog_summary_prompt_from_panel(self) -> None:
         """保存对话总结提示词模板"""
         try:
-            widget = self.conversation_summary_prompt_text
-            if widget:
-                text = widget.get("1.0", "end-1c").strip()
-                if text:
-                    self._dialog_summary_prompt_template_cache = text
             self._save_persisted_conversation_tab_snapshots()
             from tkinter import messagebox
             messagebox.showinfo("保存成功", "对话总结提示词已保存")
@@ -3225,11 +3317,6 @@ class MicChunkUiApp(tk.Tk):
     def _save_dialog_strategy_prompt_from_panel(self) -> None:
         """保存对话策略提示词模板"""
         try:
-            widget = self.conversation_strategy_prompt_text
-            if widget:
-                text = widget.get("1.0", "end-1c").strip()
-                if text:
-                    self._dialog_strategy_prompt_template_cache = text
             self._save_persisted_conversation_tab_snapshots()
             from tkinter import messagebox
             messagebox.showinfo("保存成功", "对话策略提示词已保存")
@@ -3513,25 +3600,19 @@ class MicChunkUiApp(tk.Tk):
         widget = self.conversation_summary_prompt_text
         if isinstance(widget, ScrolledText):
             try:
-                text = widget.get("1.0", "end-1c").strip()
-                if text:
-                    self._dialog_summary_prompt_template_cache = text
-                    return text
+                return widget.get("1.0", "end-1c").strip()
             except Exception:
                 pass
-        return self._dialog_summary_prompt_template_cache or DEFAULT_DIALOG_SUMMARY_PROMPT_TEMPLATE
+        return ""
 
     def _get_dialog_strategy_prompt_template(self) -> str:
         widget = self.conversation_strategy_prompt_text
         if isinstance(widget, ScrolledText):
             try:
-                text = widget.get("1.0", "end-1c").strip()
-                if text:
-                    self._dialog_strategy_prompt_template_cache = text
-                    return text
+                return widget.get("1.0", "end-1c").strip()
             except Exception:
                 pass
-        return self._dialog_strategy_prompt_template_cache or DEFAULT_NEXT_DIALOG_STRATEGY_PROMPT_TEMPLATE
+        return ""
 
     @staticmethod
     def _extract_pending_commitment_items(summary_text: str) -> list[str]:

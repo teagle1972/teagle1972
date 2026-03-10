@@ -228,10 +228,16 @@ def build_layout(
     ).pack(side=LEFT)
     ttk.Button(
         create_tab_wrap,
+        text="网络",
+        command=self._request_network_probe_from_settings,
+        style="Soft.TButton",
+    ).pack(side=RIGHT)
+    ttk.Button(
+        create_tab_wrap,
         text="Whoami",
         command=self._request_whoami_from_settings,
         style="Soft.TButton",
-    ).pack(side=RIGHT)
+    ).pack(side=RIGHT, padx=(6, 0))
 
     settings_split = ttk.Panedwindow(settings_shell, orient=tk.VERTICAL)
     settings_split.pack(fill=BOTH, expand=True)
