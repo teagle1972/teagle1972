@@ -83,6 +83,12 @@ def bind_conversation_tab_context(app, tab_id: str) -> bool:
     if current_id:
         current = app._conversation_tabs.get(current_id)
         if current is not None:
+            current_panes = getattr(current, "customer_data_panes", None)
+            if isinstance(current_panes, ttk.Panedwindow):
+                try:
+                    current.customer_data_list_sash = int(current_panes.sashpos(0))
+                except Exception:
+                    pass
             current.call_record_item_by_iid = app._call_record_item_by_iid
             current.customer_data_customer_by_iid = app._customer_data_customer_by_iid
             current.customer_data_case_cache_by_name = app._customer_data_case_cache_by_name
@@ -127,6 +133,7 @@ def bind_conversation_tab_context(app, tab_id: str) -> bool:
     app.conversation_system_instruction_text = target.conversation_system_instruction_text
     app.conversation_intent_text = target.conversation_intent_text
     app.conversation_customer_profile_text = target.conversation_customer_profile_text
+    app.conversation_pending_items_prompt_text = target.conversation_pending_items_prompt_text
     app.conversation_summary_prompt_text = target.conversation_summary_prompt_text
     app.conversation_strategy_prompt_text = target.conversation_strategy_prompt_text
     # Legacy aliases: settings-page editors were removed; bind old fields to active conversation editors.
@@ -138,6 +145,7 @@ def bind_conversation_tab_context(app, tab_id: str) -> bool:
     app.call_record_commitments_text = target.call_record_commitments_text
     app.call_record_strategy_text = target.call_record_strategy_text
     app.customer_data_record_tree = target.customer_data_record_tree
+    app.customer_data_panes = target.customer_data_panes
     app.customer_data_profile_table = target.customer_data_profile_table
     app.customer_data_calls_canvas = target.customer_data_calls_canvas
     app.customer_data_calls_container = target.customer_data_calls_container
@@ -161,6 +169,23 @@ def bind_conversation_tab_context(app, tab_id: str) -> bool:
     app._render_conversation_strategy_history_panel()
     app._sync_dialog_intent_strategy_for_active_customer()
     app._refresh_dialog_intent_queue_view()
+
+    target_panes = getattr(target, "customer_data_panes", None)
+    target_sash = int(getattr(target, "customer_data_list_sash", -1) or -1)
+    if isinstance(target_panes, ttk.Panedwindow) and target_sash >= 0:
+        def _restore_customer_data_sash() -> None:
+            try:
+                width = int(target_panes.winfo_width() or 0)
+                if width <= 0:
+                    return
+                # Keep a small visible area for the right panel.
+                clamped = max(120, min(target_sash, max(180, width - 220)))
+                target_panes.sashpos(0, clamped)
+            except Exception:
+                return
+
+        app.after_idle(_restore_customer_data_sash)
+
     sync_status = getattr(app, "_sync_conversation_profile_status", None)
     if callable(sync_status):
         try:
@@ -274,6 +299,11 @@ def capture_conversation_tab_snapshot(app, tab_id: str) -> dict[str, str]:
             if isinstance(app.conversation_summary_prompt_text, ScrolledText)
             else ""
         )
+        pending_items_prompt = (
+            app.conversation_pending_items_prompt_text.get("1.0", "end-1c")
+            if isinstance(app.conversation_pending_items_prompt_text, ScrolledText)
+            else ""
+        )
         strategy_prompt = (
             app.conversation_strategy_prompt_text.get("1.0", "end-1c")
             if isinstance(app.conversation_strategy_prompt_text, ScrolledText)
@@ -296,6 +326,7 @@ def capture_conversation_tab_snapshot(app, tab_id: str) -> dict[str, str]:
             "dialog_intent_history": dialog_intent_history_json,
             "dialog_intent_state_by_customer": dialog_intent_state_by_customer_json,
             "current_session_customer_lines": current_session_customer_lines_json,
+            "pending_items_prompt": pending_items_prompt,
             "dialog_summary_prompt": summary_prompt,
             "dialog_strategy_prompt": strategy_prompt,
         }
@@ -381,6 +412,8 @@ def apply_conversation_tab_snapshot(
             app._set_text_content(app.conversation_customer_profile_text, snapshot.get("workflow_profile", ""))
         if isinstance(app.conversation_workflow_text, ScrolledText):
             app._set_text_content(app.conversation_workflow_text, snapshot.get("strategy", ""))
+        if isinstance(app.conversation_pending_items_prompt_text, ScrolledText):
+            app._set_text_content(app.conversation_pending_items_prompt_text, snapshot.get("pending_items_prompt", ""))
         if isinstance(app.conversation_strategy_input_text, tk.Text):
             app.conversation_strategy_input_text.delete("1.0", "end")
             app.conversation_strategy_input_text.insert("1.0", snapshot.get("strategy_input", ""))
@@ -502,6 +535,7 @@ _SNAPSHOT_PERSIST_KEYS = (
     "strategy",              # conversation_workflow_text（工作流策略）
     "intent",                # conversation_intent_text（意图标签）
     "workflow_profile",      # conversation_customer_profile_text（客户个人画像）
+    "pending_items_prompt",  # 待核实事项提示词模板
     "dialog_summary_prompt", # 摘要提示词模板
     "dialog_strategy_prompt",# 策略提示词模板
 )
@@ -561,6 +595,9 @@ def load_persisted_conversation_tab_snapshots(app) -> None:
                 val = str(raw.get("intent", "") or "")
                 if val:
                     app._set_text_content(app.conversation_intent_text, val)
+            pending_items_prompt = str(raw.get("pending_items_prompt", "") or "")
+            if isinstance(app.conversation_pending_items_prompt_text, ScrolledText):
+                app._set_text_content(app.conversation_pending_items_prompt_text, pending_items_prompt)
             summary_prompt = str(raw.get("dialog_summary_prompt", "") or "")
             if isinstance(app.conversation_summary_prompt_text, ScrolledText):
                 app._set_text_content(app.conversation_summary_prompt_text, summary_prompt)
@@ -612,6 +649,7 @@ def create_conversation_tab_internal(
         "strategy_history", "profile_history", "intent_history",
         "dialog_intent_history", "dialog_intent_state_by_customer",
         "current_session_customer_lines",
+        "pending_items_prompt",
         "dialog_summary_prompt", "dialog_strategy_prompt",
     ):
         snapshot[_key] = ""
@@ -677,6 +715,8 @@ def create_conversation_tab_from_settings(app) -> None:
                 app._set_text_content(app.conversation_intent_text, "")
             if isinstance(app.conversation_workflow_text, ScrolledText):
                 app._set_text_content(app.conversation_workflow_text, "")
+            if isinstance(app.conversation_pending_items_prompt_text, ScrolledText):
+                app._set_text_content(app.conversation_pending_items_prompt_text, "")
             if isinstance(app.conversation_strategy_input_text, tk.Text):
                 app.conversation_strategy_input_text.delete("1.0", "end")
             if isinstance(app.dialog_conversation_text, ScrolledText):

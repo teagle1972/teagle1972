@@ -40,10 +40,13 @@ RE_LOG_LATENCY_ASR = re.compile(
     r"asr_silence_wait_ms=(?P<asr_silence_wait_ms>[-+]?\d+(?:\.\d+)?)\s+text=(?P<text>.*)$"
 )
 RE_INLINE_SEND_NOISE = re.compile(r"\[send\]\s+chunk=\d+\s+done\s+in\s+\d+ms")
+RE_INLINE_WS_SEND_NOISE = re.compile(r"\[ws/send\]\s+chunk=\d+\s+bytes=\d+")
+RE_WS_SEND_STANDALONE = re.compile(r"^\[ws/send\]\s+chunk=\d+\s+bytes=\d+$")
 
 
 def _clean_inline_noise(text: str) -> str:
     cleaned = RE_INLINE_SEND_NOISE.sub("", text or "")
+    cleaned = RE_INLINE_WS_SEND_NOISE.sub("", cleaned)
     cleaned = re.sub(r"\s{2,}", " ", cleaned)
     return cleaned.strip()
 

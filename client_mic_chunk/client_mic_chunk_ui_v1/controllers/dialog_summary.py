@@ -90,31 +90,6 @@ def build_next_dialog_strategy_text(app, focus_hint: str = "") -> str:
     return "\n".join(strategy_lines)
 
 
-DEFAULT_PENDING_ITEMS_PROMPT_TEMPLATE = "\n".join(
-    [
-        "你是一名专业的催收对话分析助手，请仔细阅读以下对话内容，提取需要后续跟进的两类事项：",
-        "",
-        "一、需要核实的客户承诺与执行情况，例如：",
-        "  - 客户承诺的还款是否已入账",
-        "  - 客户是否已发送转账截图",
-        "  - 客户是否已按时提供所需资料",
-        "  - 客户承诺的具体操作是否已完成",
-        "",
-        "二、客户提出的尚未答复的疑问，需坐席后续回复",
-        "",
-        "输出要求：",
-        "- 不要使用Markdown格式，不要加粗或使用特殊符号",
-        "- 每条待确认事项单独占一行，以【待确认事项】开头",
-        "- 若没有任何待确认事项，输出：【待确认事项】无",
-        "- 输出示例：",
-        "【待确认事项】客户承诺本周五前还款2000元，需核实是否到账",
-        "【待确认事项】客户提问逾期违约金计算方式，需坐席回复",
-        "",
-        "对话内容如下：",
-        "{conversation_text}",
-    ]
-)
-
 DEFAULT_DIALOG_SUMMARY_PROMPT_TEMPLATE = "\n".join(
     [
         "你是一名专业的对话总结助手，请根据以下对话内容生成一份简洁的总结报告。",
@@ -168,11 +143,15 @@ def build_dialog_summary_llm_prompt(
     return rendered.rstrip() + f"\n\n对话内容如下：\n{conv}{hint_block}"
 
 
-def build_pending_items_llm_prompt(conversation_text: str) -> str:
-    return _render_prompt_template(
-        DEFAULT_PENDING_ITEMS_PROMPT_TEMPLATE,
-        conversation_text=(conversation_text or "").strip(),
-    )
+def build_pending_items_llm_prompt(conversation_text: str, template_text: str = "") -> str:
+    conv = (conversation_text or "").strip()
+    template = str(template_text or "").strip()
+    if not template:
+        return ""
+    rendered = _render_prompt_template(template, conversation_text=conv)
+    if "{conversation_text}" in template:
+        return rendered.strip()
+    return rendered.rstrip() + f"\n\n对话内容如下：\n{conv}"
 
 
 def _extract_last_n_rounds_text(conversation_text: str, n: int = 3) -> str:
@@ -541,6 +520,31 @@ def open_dialog_summary_modal(app, *, ui_font_family: str) -> None:
                 ),
             )
 
+    def _show_done_toast() -> None:
+        if not win.winfo_exists():
+            return
+        toast = tk.Toplevel(win)
+        toast.title("")
+        toast.resizable(False, False)
+        toast.attributes("-topmost", True)
+        toast.overrideredirect(True)
+        lbl = tk.Label(
+            toast,
+            text="任务完成",
+            font=("微软雅黑", 16, "bold"),
+            bg="#1a7f3c",
+            fg="#ffffff",
+            padx=32,
+            pady=18,
+        )
+        lbl.pack()
+        toast.update_idletasks()
+        tw, th = toast.winfo_width(), toast.winfo_height()
+        wx = win.winfo_rootx() + (win.winfo_width() - tw) // 2
+        wy = win.winfo_rooty() + (win.winfo_height() - th) // 2
+        toast.geometry(f"+{wx}+{wy}")
+        win.after(2000, lambda: toast.destroy() if toast.winfo_exists() else None)
+
     def _set_gen_buttons_state(state: str) -> None:
         if not win.winfo_exists():
             return
@@ -579,6 +583,7 @@ def open_dialog_summary_modal(app, *, ui_font_family: str) -> None:
             _set_modal_text(commitments_text, commitments_content, clear=True)
             if not modal_state.get("auto_chain"):
                 _set_gen_buttons_state("normal")
+                _show_done_toast()
                 return
             conversation_text = str(modal_state.get("summary_conversation_text", "") or modal_state.get("conversation_text", "") or "")
             extra_hint = str(modal_state.get("extra_hint", "") or "")
@@ -611,6 +616,7 @@ def open_dialog_summary_modal(app, *, ui_font_family: str) -> None:
                 _stream_final_text(summary_text, "phase_summary", generation, result_text or "(empty)")
             if not modal_state.get("auto_chain"):
                 _set_gen_buttons_state("normal")
+                _show_done_toast()
                 return
             extra_hint = str(modal_state.get("extra_hint", "") or "")
             commitments_content = str(modal_state.get("commitments_content", "") or "")
@@ -644,6 +650,7 @@ def open_dialog_summary_modal(app, *, ui_font_family: str) -> None:
         _set_gen_buttons_state("normal")
         if win.winfo_exists():
             save_btn.configure(state="normal")
+        _show_done_toast()
 
     def _run_llm_task_worker(task_key: str, llm_prompt: str, generation: int) -> None:
         result_text = ""
@@ -736,7 +743,12 @@ def open_dialog_summary_modal(app, *, ui_font_family: str) -> None:
         _set_modal_text(commitments_text, "", clear=True)
         _set_modal_text(summary_text, "", clear=True)
         _set_modal_text(strategy_text, "", clear=True)
-        pending_prompt = build_pending_items_llm_prompt(commitments_conv)
+        pending_template = app._get_pending_items_prompt_template()
+        if not pending_template:
+            messagebox.showwarning("提示词为空", "请先在工作流程页填写“待核实事项提示词”。")
+            _set_gen_buttons_state("normal")
+            return
+        pending_prompt = build_pending_items_llm_prompt(commitments_conv, template_text=pending_template)
         _ts = datetime.now().strftime("%H:%M:%S")
         app._append_line(app.log_text, f"[{_ts}] [LLM_DIRECT] 一键生成启动")
         app._append_line(app.log_text, f"[{_ts}] [LLM_PROMPT] ===== 待核实事项 提示词 =====")
@@ -756,7 +768,12 @@ def open_dialog_summary_modal(app, *, ui_font_family: str) -> None:
         modal_state["commitments_content"] = ""
         modal_state["phase_pending_items"] = "thinking"
         _set_modal_text(commitments_text, "", clear=True)
-        pending_prompt = build_pending_items_llm_prompt(conversation_text)
+        pending_template = app._get_pending_items_prompt_template()
+        if not pending_template:
+            messagebox.showwarning("提示词为空", "请先在工作流程页填写“待核实事项提示词”。")
+            _set_gen_buttons_state("normal")
+            return
+        pending_prompt = build_pending_items_llm_prompt(conversation_text, template_text=pending_template)
         _ts = datetime.now().strftime("%H:%M:%S")
         app._append_line(app.log_text, f"[{_ts}] [LLM_DIRECT] 待核实事项提取启动")
         app._append_line(app.log_text, f"[{_ts}] [LLM_PROMPT] ===== 客户承诺-执行事项 提示词 =====")

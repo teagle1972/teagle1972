@@ -309,7 +309,7 @@ PROCESS_EXIT_DELAY_SECONDS = float(os.getenv("PROCESS_EXIT_DELAY_SECONDS", "0.2"
 VOICE_COMMAND_START = "start_dialog"
 VOICE_COMMAND_END = "end_dialog"
 VOICE_COMMAND_START_KEYWORDS = ("开始对话", )
-VOICE_COMMAND_END_KEYWORDS = ("结束对话",)
+VOICE_COMMAND_END_KEYWORDS = ("再见", "拜拜", "挂了", "我先挂了")
 DEFAULT_INTENT_FALLBACK_LABEL = str(os.getenv("INTENT_FALLBACK_LABEL", "") or "").strip()
 WORKFLOW_DEFAULT_OTHER_INTENT_LABEL = "其他"
 INTENT_SYSTEM_PROMPT = """你是电话催收场景中的“客户意图识别器（仅最后一句）”。
@@ -3227,6 +3227,7 @@ async def _run_realtime_audio_session(websocket: Any) -> None:
     if isinstance(websocket, _SplitChannelWebSocketAdapter):
         ws_audio_send_lock = asyncio.Lock()
     state: dict[str, Any] = {
+        "dialog_started": False,
         "last_start_at": 0.0,
         "tts_busy": False,
         "tts_interrupted": False,
@@ -3301,6 +3302,52 @@ async def _run_realtime_audio_session(websocket: Any) -> None:
         state["billing_ended_at"] = 0.0
         state["billing_start_source"] = source
         state["billing_start_text"] = trigger_text
+        return True
+
+    async def _start_dialog_turn(*, source: str, trigger_text: str) -> bool:
+        billing_started = _start_billing(source=source, trigger_text=trigger_text)
+        if billing_started:
+            await send_json_event(
+                {
+                    "event": "billing_started",
+                    "session_id": safe_session,
+                    "source": source,
+                    "trigger_text": trigger_text,
+                    "started_at": float(state.get("billing_started_at") or time.time()),
+                }
+            )
+        if bool(state.get("tts_busy")):
+            await send_json_event(
+                {
+                    "event": "command",
+                    "session_id": safe_session,
+                    "command": VOICE_COMMAND_START,
+                    "action": "ignored_busy",
+                }
+            )
+            return False
+        now = time.monotonic()
+        if (now - float(state["last_start_at"])) < START_COMMAND_COOLDOWN_SECONDS:
+            await send_json_event(
+                {
+                    "event": "command",
+                    "session_id": safe_session,
+                    "command": VOICE_COMMAND_START,
+                    "action": "ignored_cooldown",
+                }
+            )
+            return False
+        state["last_start_at"] = now
+        state["dialog_started"] = True
+        _put_latest_queue_item(
+            commit_queue,
+            {
+                "kind": VOICE_COMMAND_START,
+                "text": trigger_text,
+                "enqueue_ts": time.monotonic(),
+                "asr_last_update_at": asr_session.last_commit_update_at,
+            },
+        )
         return True
 
     def _accumulate_model_usage(model_name: str, usage: dict[str, int]) -> None:
@@ -3896,46 +3943,7 @@ async def _run_realtime_audio_session(websocket: Any) -> None:
                 )
                 continue
             if event == VOICE_COMMAND_START:
-                billing_started = _start_billing(source="client_event", trigger_text=VOICE_COMMAND_START_KEYWORDS[0])
-                if billing_started:
-                    await send_json_event(
-                        {
-                            "event": "billing_started",
-                            "session_id": safe_session,
-                            "source": "client_event",
-                            "trigger_text": VOICE_COMMAND_START_KEYWORDS[0],
-                            "started_at": float(state.get("billing_started_at") or time.time()),
-                        }
-                    )
-                if bool(state.get("tts_busy")):
-                    await send_json_event(
-                        {
-                            "event": "command",
-                            "session_id": safe_session,
-                            "command": VOICE_COMMAND_START,
-                            "action": "ignored_busy",
-                        }
-                    )
-                    continue
-                now = time.monotonic()
-                if (now - float(state["last_start_at"])) < START_COMMAND_COOLDOWN_SECONDS:
-                    await send_json_event(
-                        {
-                            "event": "command",
-                            "session_id": safe_session,
-                            "command": VOICE_COMMAND_START,
-                            "action": "ignored_cooldown",
-                        }
-                    )
-                    continue
-                state["last_start_at"] = now
-                _put_latest_queue_item(
-                    commit_queue,
-                    {
-                        "kind": VOICE_COMMAND_START,
-                        "text": VOICE_COMMAND_START_KEYWORDS[0],
-                    },
-                )
+                await _start_dialog_turn(source="client_event", trigger_text=VOICE_COMMAND_START_KEYWORDS[0])
                 continue
             if event == VOICE_COMMAND_END:
                 await _emit_billing_result(
@@ -3995,7 +4003,43 @@ async def _run_realtime_audio_session(websocket: Any) -> None:
             # "开始对话/结束对话" are control commands and should not be shown
             # as normal dialogue records on the client.
 
+            if (not bool(state.get("dialog_started"))) and command == VOICE_COMMAND_END:
+                await send_json_event({"event": "asr_commit", "text": committed, "session_id": safe_session, "nlp_submitted": False})
+                logger.info("ignore end command before dialog start session_id=%s text=%s", safe_session, committed)
+                continue
+
+            if (not bool(state.get("dialog_started"))) and committed:
+                started = await _start_dialog_turn(source="asr_commit_auto", trigger_text=committed)
+                if started:
+                    await send_json_event(
+                        {
+                            "event": "command",
+                            "session_id": safe_session,
+                            "command": VOICE_COMMAND_START,
+                            "action": "auto_started",
+                            "trigger_text": committed,
+                        }
+                    )
+                else:
+                    await send_json_event(
+                        {
+                            "event": "asr_commit",
+                            "text": committed,
+                            "session_id": safe_session,
+                            "nlp_submitted": False,
+                        }
+                    )
+                continue
+
             if command == VOICE_COMMAND_END:
+                await send_json_event(
+                    {
+                        "event": "asr_commit",
+                        "text": committed,
+                        "session_id": safe_session,
+                        "nlp_submitted": False,
+                    }
+                )
                 await _emit_billing_result(
                     source="asr_commit",
                     reason="voice_command_end_dialog",
@@ -4020,48 +4064,7 @@ async def _run_realtime_audio_session(websocket: Any) -> None:
                 break
 
             if command == VOICE_COMMAND_START:
-                billing_started = _start_billing(source="asr_commit", trigger_text=committed)
-                if billing_started:
-                    await send_json_event(
-                        {
-                            "event": "billing_started",
-                            "session_id": safe_session,
-                            "source": "asr_commit",
-                            "trigger_text": committed,
-                            "started_at": float(state.get("billing_started_at") or time.time()),
-                        }
-                    )
-                if bool(state.get("tts_busy")):
-                    await send_json_event(
-                        {
-                            "event": "command",
-                            "session_id": safe_session,
-                            "command": VOICE_COMMAND_START,
-                            "action": "ignored_busy",
-                        }
-                    )
-                    continue
-                now = time.monotonic()
-                if (now - float(state["last_start_at"])) < START_COMMAND_COOLDOWN_SECONDS:
-                    await send_json_event(
-                        {
-                            "event": "command",
-                            "session_id": safe_session,
-                            "command": VOICE_COMMAND_START,
-                            "action": "ignored_cooldown",
-                        }
-                    )
-                    continue
-                state["last_start_at"] = now
-                _put_latest_queue_item(
-                    commit_queue,
-                    {
-                        "kind": VOICE_COMMAND_START,
-                        "text": committed,
-                        "enqueue_ts": time.monotonic(),
-                        "asr_last_update_at": asr_session.last_commit_update_at,
-                    },
-                )
+                await _start_dialog_turn(source="asr_commit", trigger_text=committed)
                 continue
 
             committed_compact = _normalize_compact_text(committed)

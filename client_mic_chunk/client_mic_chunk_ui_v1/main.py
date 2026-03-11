@@ -131,6 +131,7 @@ try:
         prepare_call_context_from_customer_data_and_workflow_page as ctrl_prepare_call_context_from_customer_data_and_workflow_page,
         render_call_record_detail as ctrl_render_call_record_detail,
         render_customer_data_call_entry_views as ctrl_render_customer_data_call_entry_views,
+        delete_customer_by_name as ctrl_delete_customer_by_name,
     )
     from .controllers.profile_intent_dialog import (
         append_conversation_customer_profile_history as ctrl_append_conversation_customer_profile_history,
@@ -334,6 +335,7 @@ except Exception:
         prepare_call_context_from_customer_data_and_workflow_page as ctrl_prepare_call_context_from_customer_data_and_workflow_page,
         render_call_record_detail as ctrl_render_call_record_detail,
         render_customer_data_call_entry_views as ctrl_render_customer_data_call_entry_views,
+        delete_customer_by_name as ctrl_delete_customer_by_name,
     )
     from controllers.profile_intent_dialog import (
         append_conversation_customer_profile_history as ctrl_append_conversation_customer_profile_history,
@@ -676,6 +678,7 @@ class ConversationTabContext:
     conversation_system_instruction_text: ScrolledText | None
     conversation_intent_text: ScrolledText | None
     conversation_customer_profile_text: ScrolledText | None
+    conversation_pending_items_prompt_text: ScrolledText | None
     conversation_summary_prompt_text: ScrolledText | None
     conversation_strategy_prompt_text: ScrolledText | None
     call_record_tree: ttk.Treeview | None
@@ -683,10 +686,12 @@ class ConversationTabContext:
     call_record_commitments_text: ScrolledText | None
     call_record_strategy_text: ScrolledText | None
     customer_data_record_tree: ttk.Treeview | None
+    customer_data_panes: ttk.Panedwindow | None
     customer_data_profile_table: ttk.Treeview | None
     customer_data_calls_canvas: tk.Canvas | None
     customer_data_calls_container: ttk.Frame | None
     customer_data_call_entries_wrap: ttk.Frame | None
+    customer_data_list_sash: int = -1
     call_record_item_by_iid: dict[str, dict[str, str]] = field(default_factory=dict)
     customer_data_customer_by_iid: dict[str, str] = field(default_factory=dict)
     customer_data_case_cache_by_name: dict[str, dict[str, object]] = field(default_factory=dict)
@@ -820,6 +825,7 @@ class MicChunkUiApp(tk.Tk):
         self.call_record_summary_text: ScrolledText | None = None
         self.call_record_commitments_text: ScrolledText | None = None
         self.call_record_strategy_text: ScrolledText | None = None
+        self.customer_data_panes: ttk.Panedwindow | None = None
         self.customer_data_profile_table: ttk.Treeview | None = None
         self.customer_data_calls_canvas: tk.Canvas | None = None
         self.customer_data_calls_container: ttk.Frame | None = None
@@ -852,6 +858,7 @@ class MicChunkUiApp(tk.Tk):
         self.conversation_system_instruction_text: ScrolledText | None = None
         self.conversation_intent_text: ScrolledText | None = None
         self.conversation_customer_profile_text: ScrolledText | None = None
+        self.conversation_pending_items_prompt_text: ScrolledText | None = None
         self.conversation_summary_prompt_text: ScrolledText | None = None
         self.conversation_strategy_prompt_text: ScrolledText | None = None
         self._conversation_workflow_syncing = False
@@ -1908,6 +1915,24 @@ class MicChunkUiApp(tk.Tk):
 
     def _on_customer_call_overlay_click(self, _event=None) -> None:
         self._stop_customer_call_overlay_audio_loop()
+        # 停止跳动动画，防止其覆盖文字
+        anim_id = self._call_overlay_calling_anim_id
+        if anim_id is not None:
+            try:
+                self.after_cancel(anim_id)
+            except Exception:
+                pass
+            self._call_overlay_calling_anim_id = None
+        canvas = self._call_overlay_canvas
+        calling_item = self._call_overlay_canvas_calling_item
+        if canvas is None or calling_item is None:
+            return
+        try:
+            if not canvas.winfo_exists():
+                return
+        except Exception:
+            return
+        canvas.itemconfig(calling_item, text="已接通...", fill="#ffff00")
 
     def _schedule_customer_call_overlay_status_poll(self) -> None:
         if self._call_overlay_status_poll_after_id:
@@ -3314,6 +3339,16 @@ class MicChunkUiApp(tk.Tk):
             from tkinter import messagebox
             messagebox.showerror("保存失败", str(exc))
 
+    def _save_pending_items_prompt_from_panel(self) -> None:
+        """保存待核实事项提示词模板"""
+        try:
+            self._save_persisted_conversation_tab_snapshots()
+            from tkinter import messagebox
+            messagebox.showinfo("保存成功", "待核实事项提示词已保存")
+        except Exception as exc:
+            from tkinter import messagebox
+            messagebox.showerror("保存失败", str(exc))
+
     def _save_dialog_strategy_prompt_from_panel(self) -> None:
         """保存对话策略提示词模板"""
         try:
@@ -3598,6 +3633,15 @@ class MicChunkUiApp(tk.Tk):
 
     def _get_dialog_summary_prompt_template(self) -> str:
         widget = self.conversation_summary_prompt_text
+        if isinstance(widget, ScrolledText):
+            try:
+                return widget.get("1.0", "end-1c").strip()
+            except Exception:
+                pass
+        return ""
+
+    def _get_pending_items_prompt_template(self) -> str:
+        widget = self.conversation_pending_items_prompt_text
         if isinstance(widget, ScrolledText):
             try:
                 return widget.get("1.0", "end-1c").strip()
@@ -4043,6 +4087,9 @@ class MicChunkUiApp(tk.Tk):
 
     def _on_customer_data_tree_double_click(self, event=None) -> None:
         ctrl_on_customer_data_tree_double_click(self, event=event)
+
+    def _delete_customer_by_name(self, customer_name: str) -> None:
+        ctrl_delete_customer_by_name(self, customer_name)
 
     def _open_call_record_detail_window(self, record: dict[str, str]) -> None:
         ctrl_open_call_record_detail_window(self, record)

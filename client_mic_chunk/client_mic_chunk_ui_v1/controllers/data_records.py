@@ -18,7 +18,7 @@ def _build_llm_customer_profile_prompt(reference_profile: str) -> str:
             "输出要求：",
             "1. 只输出客户资料正文，不要解释说明，不要使用 Markdown。",
             "2. 每行一个字段，格式：字段名: 值。",
-            "3. 必须包含客户姓名字段。",
+            "3. 必须包含客户姓名字段，且姓名要和参考客户资料中的名字有巨大反差，不能相似",
             "4. 字段内容完整、具体、有实际意义。",
             "【参考客户资料】",
             reference_profile.strip(),
@@ -41,29 +41,32 @@ def _open_customer_generation_dialog(app) -> dict[str, object]:
 
     root = ttk.Frame(win, style="App.TFrame", padding=10)
     root.pack(fill=BOTH, expand=True)
-    header = ttk.Frame(root, style="Toolbar.TFrame", padding=(8, 8, 8, 8))
-    header.pack(fill=X, pady=(0, 8))
-    ttk.Label(header, text="LLM 思考过程", background="#f3f7fc", foreground="#111827").pack(side=LEFT)
-    body = ttk.LabelFrame(root, text="过程输出", style="Section.TLabelframe", padding=8)
+    body = ttk.LabelFrame(root, text="输出", style="Section.TLabelframe", padding=8)
     body.pack(fill=BOTH, expand=True)
     output = ScrolledText(
         body,
         wrap="word",
         state="disabled",
+        font=("微软雅黑", 11),
+        spacing1=8,
+        spacing2=4,
+        spacing3=8,
         bg="#ffffff",
-        fg="#111827",
+        fg="#6b7280",
         insertbackground="#111827",
         relief="flat",
         highlightthickness=1,
         highlightbackground="#d7dee8",
     )
+    output.tag_configure("thinking", foreground="#9ca3af")
+    output.tag_configure("result", foreground="#111827")
     output.pack(fill=BOTH, expand=True)
 
-    dialog: dict[str, object] = {"window": win, "output": output}
+    dialog: dict[str, object] = {"window": win, "output": output, "result_started": False}
     return dialog
 
 
-def _append_customer_generation_dialog_text(dialog: dict[str, object], text: str) -> None:
+def _append_customer_generation_dialog_text(dialog: dict[str, object], text: str, *, target: str = "thinking") -> None:
     if not text:
         return
     win = dialog.get("window")
@@ -76,10 +79,15 @@ def _append_customer_generation_dialog_text(dialog: dict[str, object], text: str
     output = dialog.get("output")
     if not isinstance(output, ScrolledText):
         return
-    prev_state = str(output.cget("state"))
+    # 第一次写入正式结果时：清空窗口，切换为黑色文字
+    if target == "result" and not dialog.get("result_started"):
+        dialog["result_started"] = True
+        output.configure(state="normal")
+        output.delete("1.0", "end")
+        output.configure(state="disabled")
     output.configure(state="normal")
-    output.insert("end", text)
-    output.configure(state=prev_state if prev_state in {"normal", "disabled"} else "normal")
+    output.insert("end", text, target)
+    output.configure(state="disabled")
     output.see("end")
 
 
@@ -165,47 +173,53 @@ def create_new_customer_record_from_jsonl(app, default_workflow: str) -> None:
 
     llm_prompt = _build_llm_customer_profile_prompt(reference_profile)
     dialog = _open_customer_generation_dialog(app)
-    _append_customer_generation_dialog_text(dialog, "[LLM_THINKING_BEGIN]\n")
     app._log_llm_prompts("新建客户(客户资料页)", llm_prompt)
 
     app._llm_submit_running = True
     app._set_llm_generation_frozen(True)
 
     thinking_seen = {"value": False}
-    result_box = {"value": ""}
-    thinking_box = {"value": ""}
-    error_box = {"value": ""}
+    content_seen = {"value": False}
+    result_store = {"value": ""}
+    thinking_store = {"value": ""}
+    error_store = {"value": ""}
 
     def _on_thinking_chunk(chunk: str) -> None:
         if not chunk:
             return
         thinking_seen["value"] = True
-        app.after(0, _append_customer_generation_dialog_text, dialog, chunk)
+        app.after(0, lambda c=chunk: _append_customer_generation_dialog_text(dialog, c, target="thinking"))
+
+    def _on_content_chunk(chunk: str) -> None:
+        if not chunk:
+            return
+        content_seen["value"] = True
+        app.after(0, lambda c=chunk: _append_customer_generation_dialog_text(dialog, c, target="result"))
 
     def _worker() -> None:
         try:
             result_text, thinking_text = app._call_direct_llm_for_system_instruction(
                 llm_prompt,
                 on_thinking_chunk=_on_thinking_chunk,
+                on_content_chunk=_on_content_chunk,
             )
-            result_box["value"] = result_text
-            thinking_box["value"] = thinking_text
+            result_store["value"] = result_text
+            thinking_store["value"] = thinking_text
         except Exception as exc:
-            error_box["value"] = str(exc)
+            error_store["value"] = str(exc)
         app.after(0, _on_done)
 
     def _on_done() -> None:
         app._llm_submit_running = False
         app._set_llm_generation_frozen(False)
 
-        thinking_text = str(thinking_box.get("value", "") or "")
+        thinking_text = str(thinking_store.get("value", "") or "")
         if (not thinking_seen["value"]) and thinking_text:
-            _append_customer_generation_dialog_text(dialog, thinking_text)
-        _append_customer_generation_dialog_text(dialog, "\n[LLM_THINKING_END]\n")
+            _append_customer_generation_dialog_text(dialog, thinking_text, target="thinking")
 
-        error_text = str(error_box.get("value", "") or "")
+        error_text = str(error_store.get("value", "") or "")
         if error_text:
-            _append_customer_generation_dialog_text(dialog, f"[LLM_ERROR] {error_text}\n")
+            _append_customer_generation_dialog_text(dialog, f"[错误] {error_text}\n", target="result")
             app._append_line(
                 app.log_text,
                 f"[{datetime.now().strftime('%H:%M:%S')}] [CUSTOMER_DATA] 新建客户失败: {error_text}",
@@ -213,16 +227,15 @@ def create_new_customer_record_from_jsonl(app, default_workflow: str) -> None:
             messagebox.showerror("新建客户失败", error_text)
             return
 
-        profile_text = str(result_box.get("value", "") or "").strip()
+        profile_text = str(result_store.get("value", "") or "").strip()
         if not profile_text:
-            _append_customer_generation_dialog_text(dialog, "[LLM_ERROR] 结果为空\n")
+            _append_customer_generation_dialog_text(dialog, "[结果为空，请重试]\n", target="result")
             messagebox.showwarning("新建客户失败", "LLM 返回内容为空，请重试。")
             return
 
-        _append_customer_generation_dialog_text(
-            dialog,
-            f"\n[LLM_RESULT_BEGIN]\n{profile_text}\n[LLM_RESULT_END]\n",
-        )
+        # 若流式内容未触发（非流式模式），将完整结果一次性填入结果区
+        if not content_seen["value"]:
+            _append_customer_generation_dialog_text(dialog, profile_text, target="result")
 
         dialog_profile_tree = app.dialog_profile_table
         if isinstance(dialog_profile_tree, ttk.Treeview):

@@ -4,7 +4,9 @@
       "Read(//d/MyProject/python/Agent/K_Distillation/volca/bk1/3-10/project/client_mic_chunk/Data/_template/**)",
       "Read(//d/MyProject/python/Agent/K_Distillation/volca/bk1/3-10/project/client_mic_chunk/client_mic_chunk_ui_v1/**)",
       "Bash(python -c \":*)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(grep -v \"import\\\\|def \\\\|ctrl_\\\\| None$\")",
+      "Bash(: ttk. \")"
     ],
     "additionalDirectories": [
       "d:\\MyProject\\python\\Agent\\K_Distillation\\volca\\bk1\\3-10\\project\\client_mic_chunk\\client_mic_chunk_ui_v1"

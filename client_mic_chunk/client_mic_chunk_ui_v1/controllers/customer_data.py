@@ -109,6 +109,7 @@ def load_call_records_into_list(app) -> None:
     for idx, item in enumerate(items):
         try:
             iid = f"rec_{idx}"
+            row_tag = "record_even" if idx % 2 == 0 else "record_odd"
             tree.insert(
                 "",
                 "end",
@@ -120,6 +121,7 @@ def load_call_records_into_list(app) -> None:
                     item.get("billing_duration", "") or "-",
                     item.get("price_per_minute", "") or "-",
                 ),
+                tags=(row_tag,),
             )
             app._call_record_item_by_iid[iid] = item
             if not first_iid:
@@ -217,6 +219,9 @@ def render_customer_data_call_entry_views(app, records: list[dict[str, str]]) ->
             bg=text_bg,
             fg="#000000",
             font=("Microsoft YaHei", 11),
+            spacing1=8,
+            spacing2=4,
+            spacing3=8,
             relief="flat",
             highlightthickness=1,
             highlightbackground=border_color,
@@ -473,11 +478,13 @@ def load_customer_data_records_into_list(app) -> None:
     for idx, (customer_name, _latest_time) in enumerate(customer_items):
         try:
             iid = f"customer_data_{idx}"
+            row_tag = "record_even" if idx % 2 == 0 else "record_odd"
             tree.insert(
                 "",
                 "end",
                 iid=iid,
-                values=(customer_name, "\u2139", "\u260E"),
+                values=(customer_name, "\u2139", "\u260E", "\u2715"),
+                tags=(row_tag,),
             )
             app._customer_data_customer_by_iid[iid] = customer_name
             if not first_iid:
@@ -553,21 +560,29 @@ def on_customer_data_tree_click(app, event=None) -> None:
         return
     if col_id == "#1":
         return
-    if col_id not in {"#2", "#3"}:
+    if col_id not in {"#2", "#3", "#4"}:
         return
     current_selected = tree.selection()
     is_selected = bool(current_selected and (current_selected[0] == row_id))
     if not is_selected:
         tree.selection_set(row_id)
     tree.focus(row_id)
-    app._on_customer_data_record_selected()
     customer_name = app._customer_data_customer_by_iid.get(row_id)
     if not customer_name:
         return
 
-    if col_id == "#2":
-        open_customer_data_detail_window(app, customer_name)
+    if col_id == "#4":
+        delete_customer_by_name(app, customer_name)
         return
+
+    if col_id == "#2":
+        # Detail popup should appear immediately. Avoid blocking on the heavy
+        # right-panel full render before opening the window.
+        open_customer_data_detail_window(app, customer_name)
+        app.after_idle(app._on_customer_data_record_selected)
+        return
+
+    app._on_customer_data_record_selected()
 
     # 鐢佃瘽鍥炬爣鐐瑰嚮锛氬姞杞芥埛鐨勮瘽鏁版崍瀹炴椂璇濋〉?
     app._set_dialog_conversation_active_customer(str(customer_name))
@@ -629,26 +644,6 @@ def open_customer_data_detail_window(app, customer_name: str) -> None:
         key=lambda item: app._parse_datetime_to_epoch(str(item.get("call_time", "") or "")),
         reverse=True,
     )
-    # 构建每条记录的详情文本列表（与 records 保持同顺序）
-    record_times: list[str] = []
-    record_contents: list[str] = []
-    for entry in records:
-        call_time = str(entry.get("call_time", "") or "").strip() or "-"
-        call_record = str(entry.get("call_record", "") or "").strip()
-        summary = str(entry.get("summary", "") or "").strip()
-        commitments = str(entry.get("commitments", "") or "").strip()
-        strategy = str(entry.get("strategy", "") or "").strip()
-        parts: list[str] = []
-        if call_record:
-            parts.append(call_record)
-        if summary:
-            parts.append(f"【总结】{summary}")
-        if commitments:
-            parts.append(f"【承诺】{commitments}")
-        if strategy:
-            parts.append(f"【策略】{strategy}")
-        record_times.append(call_time)
-        record_contents.append("\n".join(parts).strip() or "暂无内容")
 
     win = tk.Toplevel(app)
     win.title(f"客户明细 - {customer_name}")
@@ -675,12 +670,12 @@ def open_customer_data_detail_window(app, customer_name: str) -> None:
     profile_table = ttk.Treeview(
         profile_wrap,
         columns=("field_1", "value_1", "field_2", "value_2", "field_3", "value_3"),
-        show=[],
+        show="headings",
         style="ConversationProfile.Treeview",
     )
     for col in ("field_1", "value_1", "field_2", "value_2", "field_3", "value_3"):
         profile_table.heading(col, text="")
-        profile_table.column(col, minwidth=110, anchor="w", stretch=True)
+        profile_table.column(col, minwidth=80, anchor="w", stretch=True)
     profile_scroll_y = ttk.Scrollbar(
         profile_wrap,
         orient=tk.VERTICAL,
@@ -695,92 +690,91 @@ def open_customer_data_detail_window(app, customer_name: str) -> None:
     # Keep a fixed table viewport; avoid content-driven height expansion
     # that can squeeze the history pane.
     app._fill_profile_table_from_text(profile_table, profile_text=profile_text, auto_height=False)
-    profile_table.bind(
-        "<Configure>",
-        lambda _event, tree=profile_table: app._resize_profile_table_columns(tree),
-        add="+",
-    )
     panes.add(profile_box, weight=2)
 
     history_box = ttk.LabelFrame(panes, text="历史对话数据", style="ThinSection.TLabelframe", padding=0)
-    history_wrap = ttk.Frame(history_box, style="Panel.TFrame")
+    history_wrap = ttk.Panedwindow(history_box, orient=tk.HORIZONTAL)
     history_wrap.pack(fill=tk.BOTH, expand=True)
 
-    # 左右分栏：左侧对话时间列表 + 右侧详情文本
-    history_hpanes = ttk.Panedwindow(history_wrap, orient=tk.HORIZONTAL)
-    history_hpanes.pack(fill=tk.BOTH, expand=True)
-
-    # 左侧：对话时间列表
-    time_list_frame = ttk.Frame(history_hpanes, style="Panel.TFrame")
-    time_list_frame.columnconfigure(0, weight=1)
-    time_list_frame.rowconfigure(0, weight=1)
-    time_listbox = tk.Listbox(
-        time_list_frame,
-        selectmode=tk.SINGLE,
-        bg="#f0f4f8",
-        fg="#0f1f35",
-        selectbackground="#2563eb",
-        selectforeground="#ffffff",
-        relief="flat",
-        highlightthickness=0,
-        borderwidth=0,
-        activestyle="none",
-    )
-    time_scroll_y = ttk.Scrollbar(
-        time_list_frame,
-        orient=tk.VERTICAL,
-        command=time_listbox.yview,
-        style="App.Vertical.TScrollbar",
-    )
-    time_listbox.configure(yscrollcommand=time_scroll_y.set)
+    # 左侧：通话时间列表
+    list_frame = ttk.Frame(history_wrap, style="Panel.TFrame")
+    list_frame.columnconfigure(0, weight=1)
+    list_frame.rowconfigure(0, weight=1)
+    _hist_style = ttk.Style(win)
+    _hist_style.configure("HistoryTime.Treeview", font=("Microsoft YaHei", 11), rowheight=48,
+                          background="#f0f4f8", foreground="#0f1f35", fieldbackground="#f0f4f8")
+    _hist_style.map("HistoryTime.Treeview",
+                    background=[("selected", "#2563eb")], foreground=[("selected", "#ffffff")])
+    time_listbox = ttk.Treeview(list_frame, style="HistoryTime.Treeview", show="tree", selectmode="browse")
+    list_scroll_y = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=time_listbox.yview, style="App.Vertical.TScrollbar")
+    time_listbox.configure(yscrollcommand=list_scroll_y.set)
     time_listbox.grid(row=0, column=0, sticky="nsew")
-    time_scroll_y.grid(row=0, column=1, sticky="ns")
-    for t in record_times:
-        time_listbox.insert(tk.END, t)
-    history_hpanes.add(time_list_frame, weight=1)
+    list_scroll_y.grid(row=0, column=1, sticky="ns")
+    history_wrap.add(list_frame, weight=1)
 
-    # 右侧：详情文本
-    detail_frame = ttk.Frame(history_hpanes, style="Panel.TFrame")
+    # 右侧：详情文本框
+    detail_frame = ttk.Frame(history_wrap, style="Panel.TFrame")
     detail_frame.columnconfigure(0, weight=1)
     detail_frame.rowconfigure(0, weight=1)
-    history_widget = tk.Text(
+    detail_text = tk.Text(
         detail_frame,
         wrap="word",
+        state="disabled",
         bg="#ffffff",
         fg="#111827",
+        font=("Microsoft YaHei", 11),
+        spacing1=8,
+        spacing2=4,
+        spacing3=8,
         relief="flat",
-        highlightthickness=0,
-        state="disabled",
+        highlightthickness=1,
+        highlightbackground="#d7dee8",
+        bd=0,
     )
-    history_scroll_y = ttk.Scrollbar(
-        detail_frame,
-        orient=tk.VERTICAL,
-        command=history_widget.yview,
-        style="App.Vertical.TScrollbar",
-    )
-    history_widget.configure(yscrollcommand=history_scroll_y.set)
-    history_widget.grid(row=0, column=0, sticky="nsew")
-    history_scroll_y.grid(row=0, column=1, sticky="ns")
-    history_hpanes.add(detail_frame, weight=4)
+    detail_text.tag_configure("section_title", font=("Microsoft YaHei", 11, "bold"), foreground="#1e293b", spacing1=12)
+    detail_text.tag_configure("section_body", foreground="#374151")
+    detail_scroll_y = ttk.Scrollbar(detail_frame, orient=tk.VERTICAL, command=detail_text.yview, style="App.Vertical.TScrollbar")
+    detail_text.configure(yscrollcommand=detail_scroll_y.set)
+    detail_text.grid(row=0, column=0, sticky="nsew")
+    detail_scroll_y.grid(row=0, column=1, sticky="ns")
+    history_wrap.add(detail_frame, weight=3)
+
+    # 填充列表框
+    record_list = records  # 已按时间倒序排列
+    for idx, entry in enumerate(record_list):
+        call_time = str(entry.get("call_time", "") or "-")
+        time_listbox.insert("", "end", iid=str(idx), text=f"  {call_time}")
+
+    def _show_record(idx: int) -> None:
+        entry = record_list[idx]
+        summary = str(entry.get("summary", "") or "").strip() or "暂无内容"
+        commitments = str(entry.get("commitments", "") or "").strip() or "暂无内容"
+        strategy = str(entry.get("strategy", "") or "").strip() or "暂无内容"
+        detail_text.configure(state="normal")
+        detail_text.delete("1.0", "end")
+        detail_text.insert("end", "【对话总结】\n", "section_title")
+        detail_text.insert("end", summary + "\n", "section_body")
+        detail_text.insert("end", "\n【客户承诺-执行事项】\n", "section_title")
+        detail_text.insert("end", commitments + "\n", "section_body")
+        detail_text.insert("end", "\n【下一步对话策略】\n", "section_title")
+        detail_text.insert("end", strategy + "\n", "section_body")
+        detail_text.configure(state="disabled")
+        detail_text.yview_moveto(0.0)
 
     def _on_time_select(_event=None) -> None:
-        sel = time_listbox.curselection()
+        sel = time_listbox.selection()
         if not sel:
             return
-        content = record_contents[sel[0]] if sel[0] < len(record_contents) else "暂无内容"
-        history_widget.configure(state="normal")
-        history_widget.delete("1.0", "end")
-        history_widget.insert("1.0", content)
-        history_widget.configure(state="disabled")
-        history_widget.yview_moveto(0.0)
+        try:
+            _show_record(int(sel[0]))
+        except (ValueError, IndexError):
+            pass
 
-    time_listbox.bind("<<ListboxSelect>>", _on_time_select)
+    time_listbox.bind("<<TreeviewSelect>>", _on_time_select)
 
-    # 默认选中最新一条记录
-    if record_times:
-        time_listbox.selection_set(0)
-        time_listbox.activate(0)
-        _on_time_select()
+    if record_list:
+        time_listbox.selection_set("0")
+        _show_record(0)
 
     panes.add(history_box, weight=3)
 
@@ -813,21 +807,21 @@ def open_call_record_detail_window(app, record: dict[str, str]) -> None:
     panes.pack(fill=tk.BOTH, expand=True)
 
     summary_box = ttk.LabelFrame(panes, text="对话总结", style="Section.TLabelframe", padding=8)
-    summary_text = ScrolledText(summary_box, wrap="word", bg="#ffffff", fg="#111827", relief="flat")
+    summary_text = ScrolledText(summary_box, wrap="word", bg="#ffffff", fg="#111827", spacing1=8, spacing2=4, spacing3=8, relief="flat")
     summary_text.pack(fill=tk.BOTH, expand=True)
     summary_text.insert("1.0", record.get("summary", "") or "暂无内容")
     summary_text.configure(state="disabled")
     panes.add(summary_box, weight=1)
 
     commitments_box = ttk.LabelFrame(panes, text="客户承诺-执行事项", style="Section.TLabelframe", padding=8)
-    commitments_text = ScrolledText(commitments_box, wrap="word", bg="#ffffff", fg="#111827", relief="flat")
+    commitments_text = ScrolledText(commitments_box, wrap="word", bg="#ffffff", fg="#111827", spacing1=8, spacing2=4, spacing3=8, relief="flat")
     commitments_text.pack(fill=tk.BOTH, expand=True)
     commitments_text.insert("1.0", record.get("commitments", "") or "暂无内容")
     commitments_text.configure(state="disabled")
     panes.add(commitments_box, weight=1)
 
     strategy_box = ttk.LabelFrame(panes, text="Next Strategy", style="Section.TLabelframe", padding=8)
-    strategy_text = ScrolledText(strategy_box, wrap="word", bg="#ffffff", fg="#111827", relief="flat")
+    strategy_text = ScrolledText(strategy_box, wrap="word", bg="#ffffff", fg="#111827", spacing1=8, spacing2=4, spacing3=8, relief="flat")
     strategy_text.pack(fill=tk.BOTH, expand=True)
     strategy_text.insert("1.0", record.get("strategy", "") or "暂无内容")
     strategy_text.configure(state="disabled")
@@ -872,4 +866,27 @@ def on_call_record_call(app) -> None:
     if callable(switcher):
         switcher("profile")
 
+
+def delete_customer_by_name(app, customer_name: str) -> None:
+    confirmed = messagebox.askyesno(
+        "确认删除",
+        f"确定要删除客户「{customer_name}」的所有数据吗？\n此操作不可恢复。",
+    )
+    if not confirmed:
+        return
+    data_dir = app._get_data_dir()
+    deleted_count = 0
+    for path in list(data_dir.glob("*.txt")):
+        try:
+            case_data = app._read_customer_case_file(path)
+            if str(case_data.get("customer_name", "") or "") == customer_name:
+                path.unlink()
+                deleted_count += 1
+        except Exception:
+            pass
+    if deleted_count == 0:
+        messagebox.showinfo("提示", f"未找到客户「{customer_name}」的数据文件。")
+        return
+    app._load_customer_data_records_into_list()
+    app._clear_customer_data_profile_table("请选择左侧通话记录")
 

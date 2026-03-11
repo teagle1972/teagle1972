@@ -33,14 +33,14 @@ def build_conversation_tab(
     style.configure("ConversationHeader.TRadiobutton", font=header_font)
     style.configure("ConversationHeader.Primary.TButton", font=header_font)
     conversation_font_obj = tkfont.Font(family=conversation_font[0], size=conversation_font[1])
-    profile_rowheight = max(24, conversation_font_obj.metrics("linespace") + 8)
-    call_record_rowheight = max(26, conversation_font_obj.metrics("linespace") + 10)
+    profile_rowheight = max(34, conversation_font_obj.metrics("linespace") + 20)
+    call_record_rowheight = max(34, conversation_font_obj.metrics("linespace") + 20)
     heading_padding_y = max(6, int(profile_rowheight * 0.35))
     style.configure("ConversationProfile.Treeview", font=conversation_font, rowheight=profile_rowheight)
     style.configure(
         "ConversationProfile.Treeview.Heading",
-        font=("微软雅黑", 9, "bold"),
-        padding=(10, heading_padding_y),
+        font=("微软雅黑", 8),
+        padding=(4, 2),
     )
     style.configure("ConversationCallRecord.Treeview", font=conversation_font, rowheight=call_record_rowheight)
     style.configure(
@@ -89,6 +89,9 @@ def build_conversation_tab(
             "wrap": wrap,
             "state": state,
             "font": conversation_font,
+            "spacing1": 8,
+            "spacing2": 4,
+            "spacing3": 8,
             "bg": "#ffffff",
             "fg": "#111827",
             "insertbackground": "#111827",
@@ -216,19 +219,18 @@ def build_conversation_tab(
     dialog_profile_table = ttk.Treeview(
         profile_table_wrap,
         columns=("field_1", "value_1", "field_2", "value_2", "field_3", "value_3"),
-        show=[],
+        show="headings",
         style="ConversationProfile.Treeview",
     )
     for col in ("field_1", "value_1", "field_2", "value_2", "field_3", "value_3"):
         dialog_profile_table.heading(col, text="")
-        dialog_profile_table.column(col, minwidth=110, anchor="w", stretch=True)
+        dialog_profile_table.column(col, minwidth=80, anchor="w", stretch=True)
     profile_scroll_y = ttk.Scrollbar(profile_table_wrap, orient=tk.VERTICAL, command=dialog_profile_table.yview, style="App.Vertical.TScrollbar")
     dialog_profile_table.configure(yscrollcommand=profile_scroll_y.set)
     dialog_profile_table.grid(row=0, column=0, sticky="nsew")
     profile_scroll_y.grid(row=0, column=1, sticky="ns")
     dialog_profile_table.tag_configure("profile_even", background="#eef1f5", foreground="#0f1f35")
     dialog_profile_table.tag_configure("profile_odd", background="#e6e9ee", foreground="#0f1f35")
-    dialog_profile_table.bind("<Configure>", lambda _event, tree=dialog_profile_table: self._resize_profile_table_columns(tree))
     profile_vertical_panes.add(dialog_profile_box, weight=3)
 
     profile_bottom_panes = ttk.Panedwindow(profile_vertical_panes, orient=tk.HORIZONTAL)
@@ -523,6 +525,13 @@ def build_conversation_tab(
     )
     self._set_text_content(conversation_intent_text, "")
 
+    conversation_pending_items_prompt_text = _new_workflow_panel(
+        workflow_left_panes,
+        title="待核实事项提示词",
+        save_command=self._save_pending_items_prompt_from_panel,
+    )
+    self._set_text_content(conversation_pending_items_prompt_text, "")
+
     conversation_summary_prompt_text = _new_workflow_panel(
         workflow_left_panes,
         title="对话总结提示词",
@@ -558,24 +567,31 @@ def build_conversation_tab(
 
     _workflow_sash_initialized = [False]
 
+    def _set_even_vertical_sashes(panes: ttk.Panedwindow) -> None:
+        pane_count = len(panes.panes())
+        total_height = int(panes.winfo_height() or 0)
+        if pane_count <= 1 or total_height <= 1:
+            return
+        try:
+            for idx in range(1, pane_count):
+                panes.sashpos(idx - 1, max(120, int(total_height * idx / pane_count)))
+        except tk.TclError:
+            return
+
     def _set_workflow_initial_sashes() -> None:
         if _workflow_sash_initialized[0]:
             return
         w = workflow_h_panes.winfo_width()
-        left_h = workflow_left_panes.winfo_height()
-        right_h = workflow_right_panes.winfo_height()
-        if (w <= 1) or (left_h <= 1) or (right_h <= 1):
+        if w <= 1:
             workflow_h_panes.after(60, _set_workflow_initial_sashes)
             return
         _workflow_sash_initialized[0] = True
         try:
             workflow_h_panes.sashpos(0, w // 2)
-            workflow_left_panes.sashpos(0, max(160, left_h // 3))
-            workflow_left_panes.sashpos(1, max(320, (left_h * 2) // 3))
-            workflow_right_panes.sashpos(0, max(160, right_h // 3))
-            workflow_right_panes.sashpos(1, max(320, (right_h * 2) // 3))
         except tk.TclError:
             return
+        _set_even_vertical_sashes(workflow_left_panes)
+        _set_even_vertical_sashes(workflow_right_panes)
 
     workflow_h_panes.bind("<Map>", lambda _e: workflow_h_panes.after_idle(_set_workflow_initial_sashes), add="+")
 
@@ -589,7 +605,7 @@ def build_conversation_tab(
         except Exception:
             strategy_text_value = ""
 
-    for editor in (conversation_summary_prompt_text, conversation_strategy_prompt_text):
+    for editor in (conversation_pending_items_prompt_text, conversation_summary_prompt_text, conversation_strategy_prompt_text):
         editor.bind("<KeyRelease>", _on_prompt_templates_edited, add="+")
 
     for editor in (conversation_system_instruction_text, conversation_intent_text, conversation_customer_profile_text):
@@ -620,13 +636,15 @@ def build_conversation_tab(
     call_record_tree.heading("call_cost", text="通话费用")
     call_record_tree.heading("billing_duration", text="计费时长")
     call_record_tree.heading("price_per_minute", text="价格/分钟")
-    call_record_tree.column("customer_name", width=220, minwidth=120, anchor="w", stretch=True)
-    call_record_tree.column("last_call_time", width=180, minwidth=120, anchor="w", stretch=True)
+    call_record_tree.column("customer_name", width=165, minwidth=90, anchor="w", stretch=True)
+    call_record_tree.column("last_call_time", width=235, minwidth=150, anchor="w", stretch=True)
     call_record_tree.column("call_cost", width=110, minwidth=90, anchor="e", stretch=True)
     call_record_tree.column("billing_duration", width=100, minwidth=90, anchor="e", stretch=True)
     call_record_tree.column("price_per_minute", width=120, minwidth=100, anchor="e", stretch=True)
     record_scroll_y = ttk.Scrollbar(call_record_list_box, orient=tk.VERTICAL, command=call_record_tree.yview, style="App.Vertical.TScrollbar")
     call_record_tree.configure(yscrollcommand=record_scroll_y.set)
+    call_record_tree.tag_configure("record_even", background="#f5f7fa", foreground="#0f1f35")
+    call_record_tree.tag_configure("record_odd", background="#eaecf0", foreground="#0f1f35")
     call_record_tree.grid(row=0, column=0, sticky="nsew")
     record_scroll_y.grid(row=0, column=1, sticky="ns")
     call_record_tree.bind("<<TreeviewSelect>>", self._on_call_record_selected)
@@ -665,20 +683,38 @@ def build_conversation_tab(
     customer_data_list_box.rowconfigure(0, weight=1)
     customer_data_record_tree = ttk.Treeview(
         customer_data_list_box,
-        columns=("customer_name", "detail_action", "call_action"),
-        show=[],
+        columns=("customer_name", "detail_action", "call_action", "delete_action"),
+        show="headings",
         style="ConversationCallRecord.Treeview",
     )
     customer_data_record_tree.heading("customer_name", text="客户名称")
-    customer_data_record_tree.heading("detail_action", text="")
-    customer_data_record_tree.heading("call_action", text="")
-    customer_data_record_tree.column("customer_name", width=120, anchor="center", stretch=True)
-    customer_data_record_tree.column("detail_action", width=120, anchor="center", stretch=True)
-    customer_data_record_tree.column("call_action", width=120, anchor="center", stretch=True)
+    customer_data_record_tree.heading("detail_action", text="详情")
+    customer_data_record_tree.heading("call_action", text="拨号")
+    customer_data_record_tree.heading("delete_action", text="删除")
+    customer_data_record_tree.column("customer_name", width=120, minwidth=60, anchor="center", stretch=False)
+    customer_data_record_tree.column("detail_action", width=40, minwidth=30, anchor="center", stretch=False)
+    customer_data_record_tree.column("call_action", width=40, minwidth=30, anchor="center", stretch=False)
+    customer_data_record_tree.column("delete_action", width=40, minwidth=30, anchor="center", stretch=False)
+    customer_data_record_tree.tag_configure("record_even", background="#f5f7fa", foreground="#0f1f35")
+    customer_data_record_tree.tag_configure("record_odd", background="#eaecf0", foreground="#0f1f35")
     customer_data_list_scroll_y = ttk.Scrollbar(customer_data_list_box, orient=tk.VERTICAL, command=customer_data_record_tree.yview, style="App.Vertical.TScrollbar")
     customer_data_record_tree.configure(yscrollcommand=customer_data_list_scroll_y.set)
     customer_data_record_tree.grid(row=0, column=0, sticky="nsew")
     customer_data_list_scroll_y.grid(row=0, column=1, sticky="ns")
+
+    def _resize_customer_list_columns(event=None, _tree=customer_data_record_tree) -> None:
+        total_w = _tree.winfo_width()
+        if total_w <= 10:
+            return
+        # 客户名称占一半，其余三列平分另一半
+        action_w = max(30, total_w // 6)
+        name_w = max(60, total_w - action_w * 3)
+        _tree.column("customer_name", width=name_w)
+        _tree.column("detail_action", width=action_w)
+        _tree.column("call_action", width=action_w)
+        _tree.column("delete_action", width=action_w)
+
+    customer_data_record_tree.bind("<Configure>", _resize_customer_list_columns, add="+")
     customer_data_record_tree.bind("<<TreeviewSelect>>", self._on_customer_data_record_selected)
     customer_data_record_tree.bind("<ButtonRelease-1>", self._on_customer_data_tree_click, add="+")
     customer_data_record_tree.bind("<Double-Button-1>", self._on_customer_data_tree_double_click, add="+")
@@ -698,19 +734,18 @@ def build_conversation_tab(
     customer_data_profile_table = ttk.Treeview(
         customer_data_profile_wrap,
         columns=("field_1", "value_1", "field_2", "value_2", "field_3", "value_3"),
-        show=[],
+        show="headings",
         style="ConversationProfile.Treeview",
     )
     for col in ("field_1", "value_1", "field_2", "value_2", "field_3", "value_3"):
         customer_data_profile_table.heading(col, text="")
-        customer_data_profile_table.column(col, minwidth=110, anchor="w", stretch=True)
+        customer_data_profile_table.column(col, minwidth=80, anchor="w", stretch=True)
     customer_data_profile_scroll_y = ttk.Scrollbar(customer_data_profile_wrap, orient=tk.VERTICAL, command=customer_data_profile_table.yview, style="App.Vertical.TScrollbar")
     customer_data_profile_table.configure(yscrollcommand=customer_data_profile_scroll_y.set)
     customer_data_profile_table.grid(row=0, column=0, sticky="nsew")
     customer_data_profile_scroll_y.grid(row=0, column=1, sticky="ns")
     customer_data_profile_table.tag_configure("profile_even", background="#eef1f5", foreground="#0f1f35")
     customer_data_profile_table.tag_configure("profile_odd", background="#e6e9ee", foreground="#0f1f35")
-    customer_data_profile_table.bind("<Configure>", lambda _event, tree=customer_data_profile_table: self._resize_profile_table_columns(tree))
 
     # ── 下方窗格：可滚动通话记录区 ────────────────────────────────────────
     customer_data_canvas_frame = ttk.Frame(customer_data_detail_vpanes, style="App.TFrame")
@@ -804,20 +839,10 @@ def build_conversation_tab(
     monitor_shell = ttk.Frame(monitor_tab, style="Card.TFrame", padding=0)
     monitor_shell.grid(row=0, column=0, sticky="nsew")
     monitor_shell.columnconfigure(0, weight=1)
-    monitor_shell.rowconfigure(2, weight=1)
-
-    monitor_top = ttk.Frame(monitor_shell, style="Toolbar.TFrame", padding=(12, 10, 12, 10))
-    monitor_top.grid(row=0, column=0, sticky="ew")
-    ttk.Label(
-        monitor_top,
-        text="监控页仅显示当前活动对话的运行状态与事件日志。",
-        background=panel_bg,
-        foreground="#334155",
-    ).pack(side=LEFT, fill=X, expand=True)
-    ttk.Button(monitor_top, text="Export Events", command=self._export_events, style="Soft.TButton").pack(side=RIGHT)
+    monitor_shell.rowconfigure(1, weight=1)
 
     monitor_status = ttk.LabelFrame(monitor_shell, text="Status", style="Section.TLabelframe", padding=0)
-    monitor_status.grid(row=1, column=0, sticky="ew")
+    monitor_status.grid(row=0, column=0, sticky="ew")
     for col_idx in range(10):
         monitor_status.columnconfigure(col_idx, weight=0)
     for value_col in (1, 3, 5, 7, 9):
@@ -844,7 +869,7 @@ def build_conversation_tab(
     ttk.Label(monitor_status, textvariable=self.endpoint_var).grid(row=1, column=1, columnspan=9, sticky="w", pady=(6, 0))
 
     monitor_panels = ttk.Panedwindow(monitor_shell, orient=tk.HORIZONTAL)
-    monitor_panels.grid(row=2, column=0, sticky="nsew")
+    monitor_panels.grid(row=1, column=0, sticky="nsew")
     monitor_main_panels = ttk.Panedwindow(monitor_panels, orient=tk.VERTICAL)
     monitor_side_panels = ttk.Panedwindow(monitor_panels, orient=tk.VERTICAL)
     # Keep ASR on the first (left) column so its width is controlled at 1/3.
@@ -1002,6 +1027,7 @@ def build_conversation_tab(
     self.conversation_system_instruction_text = conversation_system_instruction_text
     self.conversation_intent_text = conversation_intent_text
     self.conversation_customer_profile_text = conversation_customer_profile_text
+    self.conversation_pending_items_prompt_text = conversation_pending_items_prompt_text
     self.conversation_summary_prompt_text = conversation_summary_prompt_text
     self.conversation_strategy_prompt_text = conversation_strategy_prompt_text
     self.call_record_tree = call_record_tree
@@ -1009,6 +1035,7 @@ def build_conversation_tab(
     self.call_record_commitments_text = call_record_commitments_text
     self.call_record_strategy_text = call_record_strategy_text
     self.customer_data_record_tree = customer_data_record_tree
+    self.customer_data_panes = customer_data_panes
     self.customer_data_profile_table = customer_data_profile_table
     self.customer_data_calls_canvas = customer_data_calls_canvas
     self.customer_data_calls_container = customer_data_calls_container
@@ -1051,6 +1078,7 @@ def build_conversation_tab(
         conversation_system_instruction_text=self.conversation_system_instruction_text,
         conversation_intent_text=self.conversation_intent_text,
         conversation_customer_profile_text=self.conversation_customer_profile_text,
+        conversation_pending_items_prompt_text=self.conversation_pending_items_prompt_text,
         conversation_summary_prompt_text=self.conversation_summary_prompt_text,
         conversation_strategy_prompt_text=self.conversation_strategy_prompt_text,
         call_record_tree=self.call_record_tree,
@@ -1058,6 +1086,7 @@ def build_conversation_tab(
         call_record_commitments_text=self.call_record_commitments_text,
         call_record_strategy_text=self.call_record_strategy_text,
         customer_data_record_tree=self.customer_data_record_tree,
+        customer_data_panes=self.customer_data_panes,
         customer_data_profile_table=self.customer_data_profile_table,
         customer_data_calls_canvas=self.customer_data_calls_canvas,
         customer_data_calls_container=self.customer_data_calls_container,
