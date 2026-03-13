@@ -302,14 +302,15 @@ PRE_PROMPT = "\n\n".join(
 SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", PRE_PROMPT)
 START_TRIGGER = os.getenv(
     "START_TRIGGER",
-    "请先输出一轮通用电话开场白：简短自我介绍、说明来电目的，并在结尾确认对方是否方便通话。",
+    "请先输出一轮通用电话开场白：根据【下一步工作流程任务】的内容确定是否需要简短自我介绍、说明来电目的，并在结尾确认对方是否方便通话。（通常首次联系需要，第二次联系不再需要再自我介绍+核实身份）",
 )
 START_COMMAND_COOLDOWN_SECONDS = float(os.getenv("START_COMMAND_COOLDOWN_SECONDS", "6"))
 PROCESS_EXIT_DELAY_SECONDS = float(os.getenv("PROCESS_EXIT_DELAY_SECONDS", "0.2"))
 VOICE_COMMAND_START = "start_dialog"
 VOICE_COMMAND_END = "end_dialog"
 VOICE_COMMAND_START_KEYWORDS = ("开始对话", )
-VOICE_COMMAND_END_KEYWORDS = ("再见", "拜拜", "挂了", "我先挂了")
+VOICE_COMMAND_END_KEYWORDS = ("结束对话",)
+VOICE_COMMAND_END_CONTAINS_KEYWORDS = ("再见", "拜拜", "挂了")
 DEFAULT_INTENT_FALLBACK_LABEL = str(os.getenv("INTENT_FALLBACK_LABEL", "") or "").strip()
 WORKFLOW_DEFAULT_OTHER_INTENT_LABEL = "其他"
 INTENT_SYSTEM_PROMPT = """你是电话催收场景中的“客户意图识别器（仅最后一句）”。
@@ -1560,7 +1561,17 @@ def _match_voice_command(text: str) -> str | None:
     compact = _normalize_compact_text(text)
     if not compact:
         return None
-    if any(keyword in compact for keyword in VOICE_COMMAND_END_KEYWORDS):
+    # 精确匹配（如"结束对话"）
+    end_keywords_compact = {
+        _normalize_compact_text(keyword) for keyword in VOICE_COMMAND_END_KEYWORDS if str(keyword).strip()
+    }
+    if compact in end_keywords_compact:
+        return VOICE_COMMAND_END
+    # 包含匹配（如"再见"/"拜拜"/"挂了"，只要出现在对话中即可）
+    contains_compact = [
+        _normalize_compact_text(keyword) for keyword in VOICE_COMMAND_END_CONTAINS_KEYWORDS if str(keyword).strip()
+    ]
+    if any(keyword in compact for keyword in contains_compact):
         return VOICE_COMMAND_END
     if any(keyword in compact for keyword in VOICE_COMMAND_START_KEYWORDS):
         return VOICE_COMMAND_START

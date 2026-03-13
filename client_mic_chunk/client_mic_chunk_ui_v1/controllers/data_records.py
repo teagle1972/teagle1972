@@ -62,6 +62,14 @@ def _open_customer_generation_dialog(app) -> dict[str, object]:
     output.tag_configure("result", foreground="#111827")
     output.pack(fill=BOTH, expand=True)
 
+    # 强制渲染窗口，确保用户在 LLM 返回前就能看到窗口
+    win.update()
+
+    # 显示等待提示（LLM 首 token 延迟通常需要 3-8 秒，非代码阻塞）
+    output.configure(state="normal")
+    output.insert("end", "正在连接 LLM，请稍候...\n", "thinking")
+    output.configure(state="disabled")
+
     dialog: dict[str, object] = {"window": win, "output": output, "result_started": False}
     return dialog
 
@@ -242,8 +250,9 @@ def create_new_customer_record_from_jsonl(app, default_workflow: str) -> None:
             app._fill_profile_table_from_text(dialog_profile_tree, profile_text=profile_text, auto_height=True)
         app._refresh_runtime_system_prompt_only()
         path = app._save_new_customer_record(profile_text=profile_text, strategy_text=strategy_text)
-        app._load_call_records_into_list()
-        app._load_customer_data_records_into_list()
+        app._mark_conversation_tab_data_dirty()
+        app._load_call_records_into_list(force_reload=True)
+        app._load_customer_data_records_into_list(force_reload=True)
         app._append_line(
             app.log_text,
             f"[{datetime.now().strftime('%H:%M:%S')}] [CUSTOMER_DATA] 新建客户成功 file={path.name}",

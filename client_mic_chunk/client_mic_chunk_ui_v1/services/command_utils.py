@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+import importlib
 import os
 import shlex
 import subprocess
@@ -245,11 +246,61 @@ def _resolve_python_executable(tokens: list[str]) -> str:
     return ""
 
 
+def _probe_webrtc_runtime() -> dict[str, object]:
+    mods = ["aec_audio_processing", "webrtc_apm", "webrtc_audio_processing"]
+    usable: list[str] = []
+    errors: dict[str, str] = {}
+    for mod_name in mods:
+        try:
+            importlib.import_module(mod_name)
+            usable.append(mod_name)
+        except Exception as exc:
+            errors[mod_name] = f"{type(exc).__name__}: {exc}"
+    return {
+        "python": str(sys.version.split()[0] if sys.version else ""),
+        "version_ok": tuple(sys.version_info[:2]) >= (3, 11),
+        "usable": usable,
+        "errors": errors,
+    }
+
+
+def _validate_webrtc_probe_payload(payload: dict[str, object]) -> tuple[bool, str]:
+    python_version = str(payload.get("python", "") or "")
+    version_ok = bool(payload.get("version_ok", False))
+    usable = payload.get("usable", [])
+    errors = payload.get("errors", {})
+    if not isinstance(usable, list):
+        usable = []
+    if not isinstance(errors, dict):
+        errors = {}
+
+    if (not version_ok) or (not usable):
+        missing = [name for name in ("aec_audio_processing", "webrtc_apm", "webrtc_audio_processing") if name not in usable]
+        err_parts: list[str] = []
+        for name in missing:
+            detail = str(errors.get(name, "") or "").strip()
+            if detail:
+                err_parts.append(f"{name}: {detail}")
+            else:
+                err_parts.append(f"{name}: not found")
+        reason = "; ".join(err_parts) if err_parts else "No usable WebRTC APM backend found."
+        return (
+            False,
+            "Strict WebRTC preflight failed. "
+            f"Python={python_version or '<unknown>'}, version_ok={version_ok}, "
+            f"backend_errors={reason}. "
+            "Please use Python 3.11+ and install webrtc-apm or aec-audio-processing.",
+        )
+
+    backend = str(usable[0])
+    return True, f"Strict WebRTC preflight passed. Python={python_version}, backend={backend}"
+
+
 def check_strict_webrtc_readiness(command: str, cwd: Path) -> tuple[bool, str]:
     tokens = safe_split_command(command)
     python_exe = _resolve_python_executable(tokens)
     if not python_exe:
-        return False, "Unable to resolve Python interpreter from command; please launch via python/py directly."
+        return _validate_webrtc_probe_payload(_probe_webrtc_runtime())
 
     probe_script = (
         "import importlib, json, sys\n"
@@ -292,33 +343,5 @@ def check_strict_webrtc_readiness(command: str, cwd: Path) -> tuple[bool, str]:
     except Exception:
         return False, f"Preflight output is not valid JSON: {output}"
 
-    python_version = str(payload.get("python", "") or "")
-    version_ok = bool(payload.get("version_ok", False))
-    usable = payload.get("usable", [])
-    errors = payload.get("errors", {})
-    if not isinstance(usable, list):
-        usable = []
-    if not isinstance(errors, dict):
-        errors = {}
-
-    if (not version_ok) or (not usable):
-        missing = [name for name in ("aec_audio_processing", "webrtc_apm", "webrtc_audio_processing") if name not in usable]
-        err_parts: list[str] = []
-        for name in missing:
-            detail = str(errors.get(name, "") or "").strip()
-            if detail:
-                err_parts.append(f"{name}: {detail}")
-            else:
-                err_parts.append(f"{name}: not found")
-        reason = "; ".join(err_parts) if err_parts else "No usable WebRTC APM backend found."
-        return (
-            False,
-            "Strict WebRTC preflight failed. "
-            f"Python={python_version or '<unknown>'}, version_ok={version_ok}, "
-            f"backend_errors={reason}. "
-            "Please use Python 3.11+ and install webrtc-apm or aec-audio-processing.",
-        )
-
-    backend = str(usable[0])
-    return True, f"Strict WebRTC preflight passed. Python={python_version}, backend={backend}"
+    return _validate_webrtc_probe_payload(payload)
 

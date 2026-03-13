@@ -207,6 +207,7 @@ def build_layout(
     notebook.add(conversation_tab, text="催收")
     notebook.add(timelog_tab, text="Time log")
     notebook.select(conversation_tab)
+    notebook.bind("<ButtonPress-1>", self._on_main_notebook_tab_click, add="+")
     notebook.bind("<<NotebookTabChanged>>", self._on_main_notebook_tab_changed, add="+")
 
     settings_shell = ttk.Frame(settings_tab, style="Card.TFrame", padding=0)
@@ -381,6 +382,11 @@ def build_layout(
         ("aec_near_end_protect_ratio", "近端保护比", "ratio", "1.0 ~ 1.5", "保护近端说话人语音不被过度抑制，值越大保护越强。"),
         ("aec_tts_warmup_mute_ms", "TTS起播静音窗口", "ms", "0 ~ 300", "TTS刚开始播放时短暂静音窗口，用于稳定AEC初始状态。"),
         ("aec_tts_ref_wait_mute_ms", "参考等待静音窗口", "ms", "200 ~ 3000", "等待参考信号稳定期间的静音时长，降低回声误触发。"),
+        ("aec_auto_delay_min_score", "自动延迟最低评分", "ratio", "0.0 ~ 1.0", "自动估计延迟生效的最低相关性评分阈值。"),
+        ("aec_search_span_ms", "延迟搜索跨度", "ms", "0 ~ 1000", "自动延迟估计时，围绕当前点搜索的时间范围。"),
+        ("aec_auto_delay_interval_chunks", "自动延迟更新间隔", "chunks", "1 ~ 32", "每隔多少个音频分片执行一次自动延迟更新。"),
+        ("aec_adapt_alpha", "延迟自适应平滑系数", "ratio", "0.0 ~ 1.0", "新估计延迟与历史延迟融合权重；越大跟随越快。"),
+        ("aec_ref_min_rms", "参考信号最小能量", "rms", "0 ~ 5000", "参考信号能量低于阈值时，不执行自动延迟更新。"),
     )
     for key, title, unit, limit_text, desc_text in parameter_rows:
         value_var = getattr(self, f"audio_{key}_var", None)
@@ -565,6 +571,14 @@ def build_layout(
 
     log_shell = ttk.Frame(timelog_tab, style="Card.TFrame", padding=0)
     log_shell.pack(fill=BOTH, expand=True, padx=0, pady=0)
+    log_toolbar = ttk.Frame(log_shell, style="Toolbar.TFrame", padding=(12, 8, 12, 8))
+    log_toolbar.pack(fill=X)
+    ttk.Button(
+        log_toolbar,
+        text="刷新",
+        command=self._refresh_time_log_view,
+        style="Soft.TButton",
+    ).pack(side=LEFT)
     log_box = ttk.LabelFrame(log_shell, text="Time log", style="DarkSection.TLabelframe", padding=0)
     self.log_text = TtlScrolledText(
         log_box,
@@ -584,4 +598,5 @@ def build_layout(
     self._sync_conversation_server_env_from_command(self.conversation_command_var.get().strip())
     self._apply_server_env_to_conversation_command()
     self._load_persisted_conversation_tab_snapshots()
+    self._start_ui_heartbeat_monitor()
 

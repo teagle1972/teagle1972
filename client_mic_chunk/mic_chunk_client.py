@@ -23,6 +23,22 @@ _VENDOR_DIR = Path(__file__).resolve().parent / ".vendor"
 if _VENDOR_DIR.exists():
     sys.path.insert(0, str(_VENDOR_DIR))
 
+
+def _configure_stdio() -> None:
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream is None:
+            continue
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(line_buffering=True, write_through=True)
+            except Exception:
+                pass
+
+
+_configure_stdio()
+
 try:
     import websocket
     from websocket import WebSocketConnectionClosedException, WebSocketTimeoutException
@@ -254,6 +270,20 @@ class MicChunkClient:
         self._terminate_cause_lock = threading.Lock()
         self._pending_terminate_cause: dict[str, object] | None = None
         self._whoami_probed = False
+        self._send_fail_summary_second = ""
+        self._send_fail_summary_reason = ""
+        self._send_fail_summary_count = 0
+        self._send_fail_summary_first_chunk = 0
+        self._send_fail_summary_last_chunk = 0
+        self._session_trace_start_source = ""
+        self._session_trace_start_trigger = ""
+        self._session_trace_last_command = ""
+        self._session_trace_last_action = ""
+        self._session_trace_tts_started = False
+        self._session_trace_tts_empty = False
+        self._session_trace_first_tts_frame_seen = False
+        self._session_trace_disconnect_channels: list[str] = []
+        self._session_trace_summary_emitted = False
 
         self._runtime_customer_profile = (os.getenv("CUSTOMER_PROFILE") or "").strip()
         self._runtime_workflow_text = (os.getenv("WORKFLOW_TEXT") or "").strip()
@@ -320,6 +350,130 @@ class MicChunkClient:
             print("[server/whoami] " + json.dumps(payload, ensure_ascii=False))
         except Exception as exc:
             print(f"[server/whoami] failed url={url} err={exc}")
+            self._log_net_error(stage="whoami", channel="http", endpoint=url, error=exc)
+
+    def _reset_send_fail_summary(self) -> None:
+        self._send_fail_summary_second = ""
+        self._send_fail_summary_reason = ""
+        self._send_fail_summary_count = 0
+        self._send_fail_summary_first_chunk = 0
+        self._send_fail_summary_last_chunk = 0
+
+    def _flush_send_fail_summary(self) -> None:
+        if self._send_fail_summary_count <= 0:
+            return
+        if self._send_fail_summary_count == 1:
+            print(f"[send] chunk={self._send_fail_summary_last_chunk} failed: {self._send_fail_summary_reason}")
+        else:
+            print(
+                f"[send] failed chunks={self._send_fail_summary_first_chunk}-{self._send_fail_summary_last_chunk} "
+                f"count={self._send_fail_summary_count} reason={self._send_fail_summary_reason}"
+            )
+        self._reset_send_fail_summary()
+
+    def _consume_send_fail_summary(self, *, chunk_index: int, reason: str) -> None:
+        now_second = time.strftime("%H:%M:%S")
+        reason_text = str(reason or "").strip()
+        if self._send_fail_summary_count > 0 and (
+            self._send_fail_summary_second != now_second or self._send_fail_summary_reason != reason_text
+        ):
+            self._flush_send_fail_summary()
+        if self._send_fail_summary_count <= 0:
+            self._send_fail_summary_second = now_second
+            self._send_fail_summary_reason = reason_text
+            self._send_fail_summary_count = 1
+            self._send_fail_summary_first_chunk = int(chunk_index)
+            self._send_fail_summary_last_chunk = int(chunk_index)
+            return
+        self._send_fail_summary_count += 1
+        self._send_fail_summary_last_chunk = int(chunk_index)
+
+    def _reset_session_trace(self) -> None:
+        self._session_trace_start_source = ""
+        self._session_trace_start_trigger = ""
+        self._session_trace_last_command = ""
+        self._session_trace_last_action = ""
+        self._session_trace_tts_started = False
+        self._session_trace_tts_empty = False
+        self._session_trace_first_tts_frame_seen = False
+        self._session_trace_disconnect_channels = []
+        self._session_trace_summary_emitted = False
+
+    def _emit_session_summary(self, *, end_reason: str = "") -> None:
+        if self._session_trace_summary_emitted:
+            return
+        disconnect_order = "->".join(self._session_trace_disconnect_channels) if self._session_trace_disconnect_channels else "-"
+        print(
+            "[session/summary] "
+            f"start_source={self._session_trace_start_source or '-'} "
+            f"trigger={self._session_trace_start_trigger or '-'} "
+            f"last_command={self._session_trace_last_command or '-'} "
+            f"action={self._session_trace_last_action or '-'} "
+            f"tts_started={'yes' if self._session_trace_tts_started else 'no'} "
+            f"tts_empty={'yes' if self._session_trace_tts_empty else 'no'} "
+            f"first_tts_frame={'yes' if self._session_trace_first_tts_frame_seen else 'no'} "
+            f"disconnect_order={disconnect_order} "
+            f"end_reason={str(end_reason or '').strip() or '-'}"
+        )
+        self._session_trace_summary_emitted = True
+
+    def _log_net_error(self, *, stage: str, channel: str, endpoint: str = "", error: object = "", extra: dict[str, object] | None = None) -> None:
+        payload: dict[str, object] = {
+            "stage": str(stage or "").strip(),
+            "channel": str(channel or "").strip(),
+            "endpoint": str(endpoint or "").strip(),
+            "error": str(error or "").strip(),
+        }
+        if isinstance(extra, dict):
+            for key, value in extra.items():
+                payload[str(key)] = value
+        print("[net/error] " + json.dumps(payload, ensure_ascii=False))
+
+    def _get_ws_endpoint(self, channel: str) -> str:
+        if channel == "control":
+            return str(self.ws_control_endpoint or "")
+        if channel == "media":
+            return str(self.ws_media_endpoint or "")
+        if channel == "asrws":
+            return str(self.asr_ws_endpoint or "")
+        return str(self.ws_endpoint or "")
+
+    @staticmethod
+    def _parse_ws_close_payload(payload: object) -> dict[str, object]:
+        close_info: dict[str, object] = {}
+        if not isinstance(payload, (bytes, bytearray)):
+            return close_info
+        raw = bytes(payload)
+        if len(raw) >= 2:
+            try:
+                close_info["close_code"] = int(struct.unpack("!H", raw[:2])[0])
+            except Exception:
+                pass
+        if len(raw) > 2:
+            try:
+                close_reason = raw[2:].decode("utf-8", errors="replace").strip()
+            except Exception:
+                close_reason = ""
+            if close_reason:
+                close_info["close_reason"] = close_reason
+        return close_info
+
+    def _recv_ws_message(self, ws) -> tuple[str, object]:
+        abnf = getattr(websocket, "ABNF", None)
+        if ws is None or abnf is None:
+            return "message", ws.recv()
+        with ws.readlock:
+            opcode, data = ws.recv_data(control_frame=True)
+        if opcode == abnf.OPCODE_CLOSE:
+            return "close", self._parse_ws_close_payload(data)
+        if opcode == abnf.OPCODE_TEXT:
+            try:
+                return "message", data.decode("utf-8")
+            except Exception:
+                return "message", data.decode("utf-8", errors="ignore")
+        if opcode == abnf.OPCODE_BINARY:
+            return "message", data
+        return "control", {"opcode": int(opcode)}
 
     @staticmethod
     def _gzip_compress(data: bytes) -> bytes:
@@ -1479,17 +1633,22 @@ class MicChunkClient:
             self.chunk_index += 1
 
             t0 = time.time()
+            send_failed = False
             try:
                 self._send_one_chunk(chunk_index=idx, audio_bytes=chunk)
             except Exception as exc:
-                print(f"[send] chunk={idx} failed: {exc}")
+                send_failed = True
+                self._consume_send_fail_summary(chunk_index=idx, reason=str(exc))
             finally:
+                if not send_failed:
+                    self._flush_send_fail_summary()
                 dt = (time.time() - t0) * 1000
                 should_log_send = dt >= float(self.args.send_slow_ms)
                 if (not should_log_send) and self.args.send_debug_every > 0:
                     should_log_send = (idx % int(self.args.send_debug_every)) == 0
                 if should_log_send:
                     print(f"[send] chunk={idx} done in {dt:.0f}ms")
+        self._flush_send_fail_summary()
 
     def _send_one_chunk(self, chunk_index: int, audio_bytes: bytes) -> None:
         if self.args.transport == "ws":
@@ -1725,6 +1884,13 @@ class MicChunkClient:
             new_ws.settimeout(1.0)
         except Exception as exc:
             print(f"[ws/media] reconnect failed reason={reason or '-'}: {exc}")
+            self._log_net_error(
+                stage="reconnect",
+                channel="media",
+                endpoint=self.ws_media_endpoint,
+                error=exc,
+                extra={"reason": reason or "-"},
+            )
             return False
 
         old_ws = None
@@ -1794,6 +1960,7 @@ class MicChunkClient:
             except Exception as exc:
                 if not self.stop_event.is_set():
                     print(f"[asrws/recv] failed: {exc}")
+                    self._log_net_error(stage="recv", channel="asrws", endpoint=self.asr_ws_endpoint, error=exc)
                 break
 
             if not isinstance(message, bytes):
@@ -1829,9 +1996,11 @@ class MicChunkClient:
     def _ws_receive_loop(self) -> None:
         if self._ws is None:
             return
+        close_info: dict[str, object] | None = None
+        disconnect_reason = "server_disconnected"
         while not self.stop_event.is_set():
             try:
-                message = self._ws.recv()
+                kind, payload = self._recv_ws_message(self._ws)
             except WebSocketTimeoutException:
                 continue
             except WebSocketConnectionClosedException:
@@ -1839,23 +2008,32 @@ class MicChunkClient:
             except Exception as exc:
                 if not self.stop_event.is_set():
                     print(f"[ws/recv] failed: {exc}")
+                    self._log_net_error(stage="recv", channel="single", endpoint=self.ws_endpoint, error=exc)
                 break
-
+            if kind == "control":
+                continue
+            if kind == "close":
+                close_info = payload if isinstance(payload, dict) else {}
+                disconnect_reason = "close_frame"
+                break
+            message = payload
             if isinstance(message, bytes):
                 self._handle_ws_audio(message)
                 continue
             self._handle_ws_text(str(message))
 
         if not self.stop_event.is_set():
-            self._log_ws_disconnect(channel="single", reason="server_disconnected")
+            self._log_ws_disconnect(channel="single", reason=disconnect_reason, close_info=close_info)
             self.stop_event.set()
 
     def _ws_receive_control_loop(self) -> None:
         if self._ws_control is None:
             return
+        close_info: dict[str, object] | None = None
+        disconnect_reason = "server_disconnected"
         while not self.stop_event.is_set():
             try:
-                message = self._ws_control.recv()
+                kind, payload = self._recv_ws_message(self._ws_control)
             except WebSocketTimeoutException:
                 continue
             except WebSocketConnectionClosedException:
@@ -1863,8 +2041,15 @@ class MicChunkClient:
             except Exception as exc:
                 if not self.stop_event.is_set():
                     print(f"[ws/control] recv failed: {exc}")
+                    self._log_net_error(stage="recv", channel="control", endpoint=self.ws_control_endpoint, error=exc)
                 break
-
+            if kind == "control":
+                continue
+            if kind == "close":
+                close_info = payload if isinstance(payload, dict) else {}
+                disconnect_reason = "close_frame"
+                break
+            message = payload
             if isinstance(message, bytes):
                 try:
                     self._handle_ws_text(message.decode("utf-8", errors="ignore"))
@@ -1874,10 +2059,22 @@ class MicChunkClient:
             self._handle_ws_text(str(message))
 
         if not self.stop_event.is_set():
-            self._log_ws_disconnect(channel="control", reason="server_disconnected")
+            self._log_ws_disconnect(channel="control", reason=disconnect_reason, close_info=close_info)
             self.stop_event.set()
 
-    def _log_ws_disconnect(self, *, channel: str, reason: str) -> None:
+    def _log_ws_disconnect(self, *, channel: str, reason: str, close_info: dict[str, object] | None = None) -> None:
+        if channel and channel not in self._session_trace_disconnect_channels:
+            self._session_trace_disconnect_channels.append(channel)
+        payload_base: dict[str, object] = {
+            "channel": channel,
+            "endpoint": self._get_ws_endpoint(channel),
+            "reason": reason,
+        }
+        if isinstance(close_info, dict):
+            for key in ("close_code", "close_reason"):
+                value = close_info.get(key)
+                if value not in (None, ""):
+                    payload_base[key] = value
         cause: dict[str, object] | None = None
         with self._terminate_cause_lock:
             if self._pending_terminate_cause is not None:
@@ -1896,6 +2093,18 @@ class MicChunkClient:
                     ensure_ascii=False,
                 )
             )
+            print(
+                "[ws/close] "
+                + json.dumps(
+                    {
+                        **payload_base,
+                        "cause": "unknown",
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            if channel in {"control", "single"}:
+                self._emit_session_summary(end_reason=reason)
             return
         print(
             "[ws/disconnect] "
@@ -1909,6 +2118,20 @@ class MicChunkClient:
                 ensure_ascii=False,
             )
         )
+        print(
+            "[ws/close] "
+            + json.dumps(
+                {
+                    **payload_base,
+                    "cause": "terminate_session",
+                    "terminate_reason": str(cause.get("terminate_reason", "") or ""),
+                    "trace_id": str(cause.get("terminate_trace_id", "") or ""),
+                },
+                ensure_ascii=False,
+            )
+        )
+        if channel in {"control", "single"}:
+            self._emit_session_summary(end_reason=str(cause.get("terminate_reason", "") or reason))
 
     def _ws_receive_media_loop(self) -> None:
         while not self.stop_event.is_set():
@@ -1920,20 +2143,54 @@ class MicChunkClient:
                 ws_media = self._ws_media
                 if ws_media is None:
                     continue
-                message = ws_media.recv()
+                kind, payload = self._recv_ws_message(ws_media)
             except WebSocketTimeoutException:
                 continue
             except WebSocketConnectionClosedException:
                 self._drop_ws_media_socket()
                 if not self.stop_event.is_set():
                     print("[ws/media] disconnected, trying reconnect")
+                    print(
+                        "[ws/close] "
+                        + json.dumps(
+                            {
+                                "channel": "media",
+                                "endpoint": self.ws_media_endpoint,
+                                "reason": "connection_closed",
+                                "cause": "recv",
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
                 continue
             except Exception as exc:
                 self._drop_ws_media_socket()
                 if not self.stop_event.is_set():
                     print(f"[ws/media] recv failed: {exc}; trying reconnect")
+                    self._log_net_error(stage="recv", channel="media", endpoint=self.ws_media_endpoint, error=exc)
                 continue
-
+            if kind == "control":
+                continue
+            if kind == "close":
+                self._drop_ws_media_socket()
+                if not self.stop_event.is_set():
+                    close_info = payload if isinstance(payload, dict) else {}
+                    print("[ws/media] disconnected, trying reconnect")
+                    print(
+                        "[ws/close] "
+                        + json.dumps(
+                            {
+                                "channel": "media",
+                                "endpoint": self.ws_media_endpoint,
+                                "reason": "close_frame",
+                                "cause": "recv",
+                                **close_info,
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
+                continue
+            message = payload
             if isinstance(message, bytes):
                 self._handle_ws_audio(message)
                 continue
@@ -1952,6 +2209,7 @@ class MicChunkClient:
         self._ws_audio_frame_count += 1
         self._ws_audio_total_bytes += len(audio)
         if self._ws_audio_frame_count == 1:
+            self._session_trace_first_tts_frame_seen = True
             print(f"[ws/tts] first_frame_bytes={len(audio)}")
             # End-to-end latency: last audio frame sent -> first TTS frame received.
             if self._last_audio_sent_at > 0:
@@ -2003,6 +2261,7 @@ class MicChunkClient:
             return
         event = str(payload.get("event", "")).strip().lower()
         if event == "ready":
+            self._reset_session_trace()
             session_id = payload.get("session_id")
             print(f"[ws/ready] session_id={session_id}")
             self._asr_wait_since = time.monotonic()
@@ -2041,6 +2300,8 @@ class MicChunkClient:
         if event == "command":
             command = str(payload.get("command", "") or "")
             action = str(payload.get("action", "") or "")
+            self._session_trace_last_command = command
+            self._session_trace_last_action = action
             terminate_source = str(payload.get("terminate_source", "") or "")
             terminate_reason = str(payload.get("terminate_reason", "") or "")
             terminate_trace_id = str(payload.get("terminate_trace_id", "") or "")
@@ -2107,6 +2368,8 @@ class MicChunkClient:
             )
             return
         if event == "billing_started":
+            self._session_trace_start_source = str(payload.get("source", "") or "")
+            self._session_trace_start_trigger = str(payload.get("trigger_text", "") or "")
             print(
                 "[billing/start] "
                 + json.dumps(
@@ -2127,6 +2390,8 @@ class MicChunkClient:
             )
             return
         if event == "tts_start":
+            self._session_trace_tts_started = True
+            self._session_trace_tts_empty = not bool(str(payload.get("text", "") or "").strip())
             self._drop_audio_until_tts_end = False
             self._tts_active = True
             self._tts_started_at = time.monotonic()

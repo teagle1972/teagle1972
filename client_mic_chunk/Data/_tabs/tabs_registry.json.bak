@@ -4,11 +4,7 @@
     "data_dir": "Data\\_tabs\\车险续保机器人"
   },
   {
-    "title": "多问问",
-    "data_dir": "Data\\_tabs\\多问问"
-  },
-  {
-    "title": "隔热管我",
-    "data_dir": "Data\\_tabs\\隔热管我"
+    "title": "车险",
+    "data_dir": "Data\\_tabs\\车险"
   }
 ]

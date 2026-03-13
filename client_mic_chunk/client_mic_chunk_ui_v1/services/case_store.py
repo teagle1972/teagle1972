@@ -3,6 +3,7 @@
 import json
 import random
 import re
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -24,6 +25,53 @@ _HEADER_ALIASES = {
     "commitments": {COMMITMENTS_HEADER, "### 客户承-执事项 ###", "### 瀹㈡埛鎵胯-鎵ц浜嬮」 ###"},
     "strategy": {STRATEGY_HEADER, "### 一曰 ###", "### 涓嬩竴姝ヨ瘽绛?###"},
 }
+
+
+def _score_decoded_case_text(text: str) -> int:
+    score = 0
+    for marker in (
+        "客户名称",
+        "创建时间",
+        "更新时间",
+        PROFILE_HEADER,
+        RECORDS_HEADER,
+        CALL_RECORD_HEADER,
+        SUMMARY_HEADER,
+        COMMITMENTS_HEADER,
+        STRATEGY_HEADER,
+        ">>> 记录开始",
+        "<<< 记录结束",
+    ):
+        if marker in text:
+            score += 10
+    score -= text.count("\ufffd") * 5
+    return score
+
+
+def _read_case_store_text(path: Path) -> str:
+    raw = path.read_bytes()
+    candidates: list[str] = []
+    for encoding in ("utf-8-sig", "utf-8", "gb18030", "gbk"):
+        try:
+            candidates.append(raw.decode(encoding))
+        except Exception:
+            continue
+    if not candidates:
+        return raw.decode("utf-8", errors="ignore")
+    best = max(candidates, key=_score_decoded_case_text)
+    return best
+
+
+def _normalize_case_customer_name(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", str(text or ""))
+    cleaned_chars: list[str] = []
+    for ch in normalized:
+        if ch in {"\ufeff", "\u200b", "\u200c", "\u200d", "\u2060"}:
+            continue
+        if unicodedata.category(ch).startswith("C"):
+            continue
+        cleaned_chars.append(ch)
+    return "".join(cleaned_chars).strip()
 
 
 def _split_kv(line: str) -> tuple[str, str] | None:
@@ -196,7 +244,7 @@ def _match_header(line: str, key: str) -> bool:
 
 
 def read_customer_case_file(path: Path) -> dict[str, object]:
-    text = path.read_text(encoding="utf-8", errors="ignore")
+    text = _read_case_store_text(path)
     lines = text.splitlines()
     record_data: dict[str, object] = {
         "customer_name": "",
@@ -343,7 +391,10 @@ def read_customer_case_file(path: Path) -> dict[str, object]:
     customer_name = str(record_data.get("customer_name", "")).strip()
     if not customer_name:
         customer_name = path.stem.split("_", 1)[0] if "_" in path.stem else path.stem
-        record_data["customer_name"] = customer_name
+    customer_name = _normalize_case_customer_name(customer_name)
+    if not customer_name:
+        customer_name = _normalize_case_customer_name(path.stem.split("_", 1)[0] if "_" in path.stem else path.stem)
+    record_data["customer_name"] = customer_name
     created_time = str(record_data.get("created_time", "")).strip()
     updated_time = str(record_data.get("updated_time", "")).strip()
     if not created_time:

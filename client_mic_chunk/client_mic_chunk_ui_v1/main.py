@@ -9,8 +9,6 @@ import ctypes
 import threading
 import time
 from contextlib import contextmanager
-from collections import deque
-from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from tkinter import BOTH, LEFT, RIGHT, X, Y, messagebox
@@ -18,7 +16,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, ttk
 from tkinter.scrolledtext import ScrolledText
-from typing import Callable, Iterator, TextIO
+from typing import Callable, Iterator
 
 import requests
 try:
@@ -44,6 +42,23 @@ except Exception:
     from flow_editor.models import Edge as FlowEdge, Node as FlowNode, NodeType
 
 try:
+    from .config.audio_runtime import (
+        AGGRESSIVE_PROFILE_OVERRIDES,
+        ASR_FIRST_PROFILE_OVERRIDES,
+        AUDIO_TUNING_SPECS,
+        RUNTIME_AUDIO_CONFIG_FILENAME,
+    )
+    from .models.conversation_tab import ConversationTabContext
+except Exception:
+    from config.audio_runtime import (
+        AGGRESSIVE_PROFILE_OVERRIDES,
+        ASR_FIRST_PROFILE_OVERRIDES,
+        AUDIO_TUNING_SPECS,
+        RUNTIME_AUDIO_CONFIG_FILENAME,
+    )
+    from models.conversation_tab import ConversationTabContext
+
+try:
     from .controllers.editor_dialog import (
         build_dialog_llm_prompt as ctrl_build_dialog_llm_prompt,
         close_settings_editor_dialog as ctrl_close_settings_editor_dialog,
@@ -52,6 +67,120 @@ try:
         poll_editor_dialog_events as ctrl_poll_editor_dialog_events,
         submit_editor_dialog as ctrl_submit_editor_dialog,
         submit_editor_dialog_worker as ctrl_submit_editor_dialog_worker,
+    )
+    from .controllers.app_bootstrap import (
+        init_runtime_fields as ctrl_init_runtime_fields,
+        init_session_state_fields as ctrl_init_session_state_fields,
+    )
+    from .controllers.audio_helpers import normalize_aec_profile as ctrl_normalize_aec_profile
+    from .controllers.audio_config import (
+        apply_audio_config_to_commands as ctrl_apply_audio_config_to_commands,
+        apply_audio_tuning_values_to_command as ctrl_apply_audio_tuning_values_to_command,
+        build_runtime_audio_config_payload as ctrl_build_runtime_audio_config_payload,
+        collect_validated_audio_tuning_values as ctrl_collect_validated_audio_tuning_values,
+        load_audio_config_from_command_text as ctrl_load_audio_config_from_command_text,
+        load_audio_config_from_current_command as ctrl_load_audio_config_from_current_command,
+        load_runtime_audio_config as ctrl_load_runtime_audio_config,
+        reset_audio_config_defaults as ctrl_reset_audio_config_defaults,
+        reset_audio_config_defaults_for_profile as ctrl_reset_audio_config_defaults_for_profile,
+        save_audio_config_from_ui as ctrl_save_audio_config_from_ui,
+        save_runtime_audio_config as ctrl_save_runtime_audio_config,
+        set_audio_config_status as ctrl_set_audio_config_status,
+    )
+    from .controllers.server_env import (
+        apply_server_env_to_command as ctrl_apply_server_env_to_command,
+        apply_server_env_to_command_vars as ctrl_apply_server_env_to_command_vars,
+        apply_server_env_to_conversation_command as ctrl_apply_server_env_to_conversation_command,
+        sync_conversation_server_env_from_command as ctrl_sync_conversation_server_env_from_command,
+        sync_server_env_from_command as ctrl_sync_server_env_from_command,
+        sync_server_env_from_command_to_var as ctrl_sync_server_env_from_command_to_var,
+    )
+    from .controllers.network_probe import (
+        probe_public_ip as ctrl_probe_public_ip,
+        request_network_probe_from_settings as ctrl_request_network_probe_from_settings,
+        request_whoami_from_settings as ctrl_request_whoami_from_settings,
+        resolve_whoami_base_url as ctrl_resolve_whoami_base_url,
+    )
+    from .controllers.log_buffer import (
+        buffer_log_line as ctrl_buffer_log_line,
+        consume_send_done_log as ctrl_consume_send_done_log,
+        flush_log_buffer as ctrl_flush_log_buffer,
+        flush_send_done_summary as ctrl_flush_send_done_summary,
+        reset_send_done_summary as ctrl_reset_send_done_summary,
+    )
+    from .controllers.asr_switch import toggle_asr as ctrl_toggle_asr
+    from .controllers.flow_monitor_ui import (
+        apply_flow_monitor_active_node_style as ctrl_apply_flow_monitor_active_node_style,
+        bind_flow_monitor_hover_events as ctrl_bind_flow_monitor_hover_events,
+        center_flow_monitor_node as ctrl_center_flow_monitor_node,
+        flow_monitor_node_id_at as ctrl_flow_monitor_node_id_at,
+        flow_monitor_zoom_in as ctrl_flow_monitor_zoom_in,
+        flow_monitor_zoom_out as ctrl_flow_monitor_zoom_out,
+        flow_monitor_zoom_reset as ctrl_flow_monitor_zoom_reset,
+        highlight_flow_monitor_node as ctrl_highlight_flow_monitor_node,
+        hide_flow_tooltip as ctrl_hide_flow_tooltip,
+        lock_flow_monitor_interactions as ctrl_lock_flow_monitor_interactions,
+        on_flow_monitor_leave as ctrl_on_flow_monitor_leave,
+        on_flow_monitor_motion as ctrl_on_flow_monitor_motion,
+        restore_flow_monitor_highlight as ctrl_restore_flow_monitor_highlight,
+        show_flow_tooltip as ctrl_show_flow_tooltip,
+        toggle_flow_script_panel as ctrl_toggle_flow_script_panel,
+    )
+    from .controllers.flow_graph_models import (
+        build_flow_graph_models as ctrl_build_flow_graph_models,
+        coerce_node_type as ctrl_coerce_node_type,
+        to_float as ctrl_to_float,
+    )
+    from .controllers.workflow_loader import (
+        clear_loaded_workflow_json as ctrl_clear_loaded_workflow_json,
+        load_workflow_json_file as ctrl_load_workflow_json_file,
+        render_flow_monitor_graph as ctrl_render_flow_monitor_graph,
+    )
+    from .controllers.workflow_events import handle_workflow_progress_event as ctrl_handle_workflow_progress_event
+    from .controllers.removed_features import (
+        generate_intents_from_settings as ctrl_generate_intents_from_settings_removed,
+        open_customer_profile_dialog as ctrl_open_customer_profile_dialog_removed,
+        open_workflow_dialog as ctrl_open_workflow_dialog_removed,
+        submit_customer_profile_from_panel as ctrl_submit_customer_profile_from_panel_removed,
+        submit_settings_panel_llm as ctrl_submit_settings_panel_llm_removed,
+        submit_workflow_from_panel as ctrl_submit_workflow_from_panel_removed,
+    )
+    from .controllers.prompt_templates import (
+        get_dialog_strategy_prompt_template as ctrl_get_dialog_strategy_prompt_template,
+        get_dialog_summary_prompt_template as ctrl_get_dialog_summary_prompt_template,
+        get_pending_items_prompt_template as ctrl_get_pending_items_prompt_template,
+    )
+    from .controllers.strategy_dialog_history import (
+        render_conversation_strategy_dialog_history as ctrl_render_conversation_strategy_dialog_history,
+    )
+    from .controllers.widget_appenders import append_text_to_widget_with_tag as ctrl_append_text_to_widget_with_tag
+    from .controllers.bubble_routing import (
+        is_instruction_header_line as ctrl_is_instruction_header_line,
+        is_llm_header_line as ctrl_is_llm_header_line,
+        try_append_customer_profile_bubble as ctrl_try_append_customer_profile_bubble,
+    )
+    from .controllers.bubble_canvas import draw_rounded_rect as ctrl_draw_rounded_rect
+    from .controllers.bubble_updates import append_customer_profile_bubble_text as ctrl_append_customer_profile_bubble_text
+    from .controllers.bubble_renderer import render_customer_profile_bubble_canvas as ctrl_render_customer_profile_bubble_canvas
+    from .controllers.bubble_rows import insert_customer_profile_bubble_row as ctrl_insert_customer_profile_bubble_row
+    from .controllers.bubble_text_wrap import wrap_text_for_strategy_history_bubble as ctrl_wrap_text_for_strategy_history_bubble
+    from .controllers.history_tags import (
+        update_customer_profile_dialog_history_tags as ctrl_update_customer_profile_dialog_history_tags,
+        update_conversation_strategy_dialog_history_tags as ctrl_update_conversation_strategy_dialog_history_tags,
+    )
+    from .controllers.profile_dialog_history import (
+        render_conversation_customer_profile_dialog_history as ctrl_render_conversation_customer_profile_dialog_history,
+    )
+    from .controllers.intent_dialog_history import (
+        render_conversation_intent_dialog_history as ctrl_render_conversation_intent_dialog_history,
+    )
+    from .controllers.live_bubble_phases import (
+        append_live_conversation_customer_profile_content_chunk as ctrl_append_live_conversation_customer_profile_content_chunk_phase,
+        append_live_conversation_customer_profile_thinking_chunk as ctrl_append_live_conversation_customer_profile_thinking_chunk_phase,
+        append_live_conversation_intent_content_chunk as ctrl_append_live_conversation_intent_content_chunk_phase,
+        append_live_conversation_intent_thinking_chunk as ctrl_append_live_conversation_intent_thinking_chunk_phase,
+        prepare_live_conversation_intent_response_bubble as ctrl_prepare_live_conversation_intent_response_bubble_phase,
+        prepare_live_conversation_customer_profile_response_bubble as ctrl_prepare_live_conversation_customer_profile_response_bubble_phase,
     )
     from .controllers.strategy_generator import (
         append_conversation_strategy_history as ctrl_append_conversation_strategy_history,
@@ -101,6 +230,7 @@ try:
         is_template_conversation_context_bound as ctrl_is_template_conversation_context_bound,
         load_persisted_conversation_tab_snapshots as ctrl_load_persisted_conversation_tab_snapshots,
         load_persisted_conversation_tabs as ctrl_load_persisted_conversation_tabs,
+        on_main_notebook_tab_click as ctrl_on_main_notebook_tab_click,
         on_main_notebook_tab_changed as ctrl_on_main_notebook_tab_changed,
         read_conversation_tab_registry_entries as ctrl_read_conversation_tab_registry_entries,
         refresh_conversation_tab_registry_view as ctrl_refresh_conversation_tab_registry_view,
@@ -115,6 +245,7 @@ try:
         apply_call_record_profile_and_workflow as ctrl_apply_call_record_profile_and_workflow,
         build_call_record_items as ctrl_build_call_record_items,
         build_customer_case_cache_by_name as ctrl_build_customer_case_cache_by_name,
+        build_visible_customer_records as ctrl_build_visible_customer_records,
         clear_call_record_detail as ctrl_clear_call_record_detail,
         clear_customer_data_call_entry_views as ctrl_clear_customer_data_call_entry_views,
         clear_customer_data_profile_table as ctrl_clear_customer_data_profile_table,
@@ -122,12 +253,15 @@ try:
         get_selected_customer_case_data as ctrl_get_selected_customer_case_data,
         load_call_records_into_list as ctrl_load_call_records_into_list,
         load_customer_data_records_into_list as ctrl_load_customer_data_records_into_list,
+        mark_conversation_tab_data_dirty as ctrl_mark_conversation_tab_data_dirty,
         on_call_record_call as ctrl_on_call_record_call,
         on_call_record_selected as ctrl_on_call_record_selected,
+        on_call_record_tree_click as ctrl_on_call_record_tree_click,
         on_customer_data_record_selected as ctrl_on_customer_data_record_selected,
         on_customer_data_tree_click as ctrl_on_customer_data_tree_click,
         on_customer_data_tree_double_click as ctrl_on_customer_data_tree_double_click,
         open_call_record_detail_window as ctrl_open_call_record_detail_window,
+        open_customer_data_detail_window as ctrl_open_customer_data_detail_window,
         prepare_call_context_from_customer_data_and_workflow_page as ctrl_prepare_call_context_from_customer_data_and_workflow_page,
         render_call_record_detail as ctrl_render_call_record_detail,
         render_customer_data_call_entry_views as ctrl_render_customer_data_call_entry_views,
@@ -213,6 +347,7 @@ try:
         on_conversation_workflow_text_edited as ctrl_on_conversation_workflow_text_edited,
         refresh_runtime_system_prompt_only as ctrl_refresh_runtime_system_prompt_only,
         refresh_system_instruction as ctrl_refresh_system_instruction,
+        _set_workflow_doc_dirty as ctrl_set_workflow_doc_dirty,
     )
     from .controllers.stream_runtime import (
         append_dialog_agent_stream_text as ctrl_append_dialog_agent_stream_text,
@@ -247,7 +382,122 @@ try:
     )
     from .controllers.layout_builder import build_layout as ctrl_build_layout
     from .controllers.conversation_tab_builder import build_conversation_tab as ctrl_build_conversation_tab
+    from .controllers.call_timer_overlay import CallTimerOverlay as ctrl_CallTimerOverlay
 except Exception:
+    from controllers.app_bootstrap import (
+        init_runtime_fields as ctrl_init_runtime_fields,
+        init_session_state_fields as ctrl_init_session_state_fields,
+    )
+    from controllers.audio_helpers import normalize_aec_profile as ctrl_normalize_aec_profile
+    from controllers.audio_config import (
+        apply_audio_config_to_commands as ctrl_apply_audio_config_to_commands,
+        apply_audio_tuning_values_to_command as ctrl_apply_audio_tuning_values_to_command,
+        build_runtime_audio_config_payload as ctrl_build_runtime_audio_config_payload,
+        collect_validated_audio_tuning_values as ctrl_collect_validated_audio_tuning_values,
+        load_audio_config_from_command_text as ctrl_load_audio_config_from_command_text,
+        load_audio_config_from_current_command as ctrl_load_audio_config_from_current_command,
+        load_runtime_audio_config as ctrl_load_runtime_audio_config,
+        reset_audio_config_defaults as ctrl_reset_audio_config_defaults,
+        reset_audio_config_defaults_for_profile as ctrl_reset_audio_config_defaults_for_profile,
+        save_audio_config_from_ui as ctrl_save_audio_config_from_ui,
+        save_runtime_audio_config as ctrl_save_runtime_audio_config,
+        set_audio_config_status as ctrl_set_audio_config_status,
+    )
+    from controllers.server_env import (
+        apply_server_env_to_command as ctrl_apply_server_env_to_command,
+        apply_server_env_to_command_vars as ctrl_apply_server_env_to_command_vars,
+        apply_server_env_to_conversation_command as ctrl_apply_server_env_to_conversation_command,
+        sync_conversation_server_env_from_command as ctrl_sync_conversation_server_env_from_command,
+        sync_server_env_from_command as ctrl_sync_server_env_from_command,
+        sync_server_env_from_command_to_var as ctrl_sync_server_env_from_command_to_var,
+    )
+    from controllers.network_probe import (
+        probe_public_ip as ctrl_probe_public_ip,
+        request_network_probe_from_settings as ctrl_request_network_probe_from_settings,
+        request_whoami_from_settings as ctrl_request_whoami_from_settings,
+        resolve_whoami_base_url as ctrl_resolve_whoami_base_url,
+    )
+    from controllers.log_buffer import (
+        buffer_log_line as ctrl_buffer_log_line,
+        consume_send_done_log as ctrl_consume_send_done_log,
+        flush_log_buffer as ctrl_flush_log_buffer,
+        flush_send_done_summary as ctrl_flush_send_done_summary,
+        reset_send_done_summary as ctrl_reset_send_done_summary,
+    )
+    from controllers.asr_switch import toggle_asr as ctrl_toggle_asr
+    from controllers.flow_monitor_ui import (
+        apply_flow_monitor_active_node_style as ctrl_apply_flow_monitor_active_node_style,
+        bind_flow_monitor_hover_events as ctrl_bind_flow_monitor_hover_events,
+        center_flow_monitor_node as ctrl_center_flow_monitor_node,
+        flow_monitor_node_id_at as ctrl_flow_monitor_node_id_at,
+        flow_monitor_zoom_in as ctrl_flow_monitor_zoom_in,
+        flow_monitor_zoom_out as ctrl_flow_monitor_zoom_out,
+        flow_monitor_zoom_reset as ctrl_flow_monitor_zoom_reset,
+        highlight_flow_monitor_node as ctrl_highlight_flow_monitor_node,
+        hide_flow_tooltip as ctrl_hide_flow_tooltip,
+        lock_flow_monitor_interactions as ctrl_lock_flow_monitor_interactions,
+        on_flow_monitor_leave as ctrl_on_flow_monitor_leave,
+        on_flow_monitor_motion as ctrl_on_flow_monitor_motion,
+        restore_flow_monitor_highlight as ctrl_restore_flow_monitor_highlight,
+        show_flow_tooltip as ctrl_show_flow_tooltip,
+        toggle_flow_script_panel as ctrl_toggle_flow_script_panel,
+    )
+    from controllers.flow_graph_models import (
+        build_flow_graph_models as ctrl_build_flow_graph_models,
+        coerce_node_type as ctrl_coerce_node_type,
+        to_float as ctrl_to_float,
+    )
+    from controllers.workflow_loader import (
+        clear_loaded_workflow_json as ctrl_clear_loaded_workflow_json,
+        load_workflow_json_file as ctrl_load_workflow_json_file,
+        render_flow_monitor_graph as ctrl_render_flow_monitor_graph,
+    )
+    from controllers.workflow_events import handle_workflow_progress_event as ctrl_handle_workflow_progress_event
+    from controllers.removed_features import (
+        generate_intents_from_settings as ctrl_generate_intents_from_settings_removed,
+        open_customer_profile_dialog as ctrl_open_customer_profile_dialog_removed,
+        open_workflow_dialog as ctrl_open_workflow_dialog_removed,
+        submit_customer_profile_from_panel as ctrl_submit_customer_profile_from_panel_removed,
+        submit_settings_panel_llm as ctrl_submit_settings_panel_llm_removed,
+        submit_workflow_from_panel as ctrl_submit_workflow_from_panel_removed,
+    )
+    from controllers.prompt_templates import (
+        get_dialog_strategy_prompt_template as ctrl_get_dialog_strategy_prompt_template,
+        get_dialog_summary_prompt_template as ctrl_get_dialog_summary_prompt_template,
+        get_pending_items_prompt_template as ctrl_get_pending_items_prompt_template,
+    )
+    from controllers.strategy_dialog_history import (
+        render_conversation_strategy_dialog_history as ctrl_render_conversation_strategy_dialog_history,
+    )
+    from controllers.widget_appenders import append_text_to_widget_with_tag as ctrl_append_text_to_widget_with_tag
+    from controllers.bubble_routing import (
+        is_instruction_header_line as ctrl_is_instruction_header_line,
+        is_llm_header_line as ctrl_is_llm_header_line,
+        try_append_customer_profile_bubble as ctrl_try_append_customer_profile_bubble,
+    )
+    from controllers.bubble_canvas import draw_rounded_rect as ctrl_draw_rounded_rect
+    from controllers.bubble_updates import append_customer_profile_bubble_text as ctrl_append_customer_profile_bubble_text
+    from controllers.bubble_renderer import render_customer_profile_bubble_canvas as ctrl_render_customer_profile_bubble_canvas
+    from controllers.bubble_rows import insert_customer_profile_bubble_row as ctrl_insert_customer_profile_bubble_row
+    from controllers.bubble_text_wrap import wrap_text_for_strategy_history_bubble as ctrl_wrap_text_for_strategy_history_bubble
+    from controllers.history_tags import (
+        update_customer_profile_dialog_history_tags as ctrl_update_customer_profile_dialog_history_tags,
+        update_conversation_strategy_dialog_history_tags as ctrl_update_conversation_strategy_dialog_history_tags,
+    )
+    from controllers.profile_dialog_history import (
+        render_conversation_customer_profile_dialog_history as ctrl_render_conversation_customer_profile_dialog_history,
+    )
+    from controllers.intent_dialog_history import (
+        render_conversation_intent_dialog_history as ctrl_render_conversation_intent_dialog_history,
+    )
+    from controllers.live_bubble_phases import (
+        append_live_conversation_customer_profile_content_chunk as ctrl_append_live_conversation_customer_profile_content_chunk_phase,
+        append_live_conversation_customer_profile_thinking_chunk as ctrl_append_live_conversation_customer_profile_thinking_chunk_phase,
+        append_live_conversation_intent_content_chunk as ctrl_append_live_conversation_intent_content_chunk_phase,
+        append_live_conversation_intent_thinking_chunk as ctrl_append_live_conversation_intent_thinking_chunk_phase,
+        prepare_live_conversation_intent_response_bubble as ctrl_prepare_live_conversation_intent_response_bubble_phase,
+        prepare_live_conversation_customer_profile_response_bubble as ctrl_prepare_live_conversation_customer_profile_response_bubble_phase,
+    )
     from controllers.editor_dialog import (
         build_dialog_llm_prompt as ctrl_build_dialog_llm_prompt,
         close_settings_editor_dialog as ctrl_close_settings_editor_dialog,
@@ -305,6 +555,7 @@ except Exception:
         is_template_conversation_context_bound as ctrl_is_template_conversation_context_bound,
         load_persisted_conversation_tab_snapshots as ctrl_load_persisted_conversation_tab_snapshots,
         load_persisted_conversation_tabs as ctrl_load_persisted_conversation_tabs,
+        on_main_notebook_tab_click as ctrl_on_main_notebook_tab_click,
         on_main_notebook_tab_changed as ctrl_on_main_notebook_tab_changed,
         read_conversation_tab_registry_entries as ctrl_read_conversation_tab_registry_entries,
         refresh_conversation_tab_registry_view as ctrl_refresh_conversation_tab_registry_view,
@@ -319,6 +570,7 @@ except Exception:
         apply_call_record_profile_and_workflow as ctrl_apply_call_record_profile_and_workflow,
         build_call_record_items as ctrl_build_call_record_items,
         build_customer_case_cache_by_name as ctrl_build_customer_case_cache_by_name,
+        build_visible_customer_records as ctrl_build_visible_customer_records,
         clear_call_record_detail as ctrl_clear_call_record_detail,
         clear_customer_data_call_entry_views as ctrl_clear_customer_data_call_entry_views,
         clear_customer_data_profile_table as ctrl_clear_customer_data_profile_table,
@@ -326,12 +578,15 @@ except Exception:
         get_selected_customer_case_data as ctrl_get_selected_customer_case_data,
         load_call_records_into_list as ctrl_load_call_records_into_list,
         load_customer_data_records_into_list as ctrl_load_customer_data_records_into_list,
+        mark_conversation_tab_data_dirty as ctrl_mark_conversation_tab_data_dirty,
         on_call_record_call as ctrl_on_call_record_call,
         on_call_record_selected as ctrl_on_call_record_selected,
+        on_call_record_tree_click as ctrl_on_call_record_tree_click,
         on_customer_data_record_selected as ctrl_on_customer_data_record_selected,
         on_customer_data_tree_click as ctrl_on_customer_data_tree_click,
         on_customer_data_tree_double_click as ctrl_on_customer_data_tree_double_click,
         open_call_record_detail_window as ctrl_open_call_record_detail_window,
+        open_customer_data_detail_window as ctrl_open_customer_data_detail_window,
         prepare_call_context_from_customer_data_and_workflow_page as ctrl_prepare_call_context_from_customer_data_and_workflow_page,
         render_call_record_detail as ctrl_render_call_record_detail,
         render_customer_data_call_entry_views as ctrl_render_customer_data_call_entry_views,
@@ -417,6 +672,7 @@ except Exception:
         on_conversation_workflow_text_edited as ctrl_on_conversation_workflow_text_edited,
         refresh_runtime_system_prompt_only as ctrl_refresh_runtime_system_prompt_only,
         refresh_system_instruction as ctrl_refresh_system_instruction,
+        _set_workflow_doc_dirty as ctrl_set_workflow_doc_dirty,
     )
     from controllers.stream_runtime import (
         append_dialog_agent_stream_text as ctrl_append_dialog_agent_stream_text,
@@ -451,6 +707,7 @@ except Exception:
     )
     from controllers.layout_builder import build_layout as ctrl_build_layout
     from controllers.conversation_tab_builder import build_conversation_tab as ctrl_build_conversation_tab
+    from controllers.call_timer_overlay import CallTimerOverlay as ctrl_CallTimerOverlay
 
 try:
     from .services.case_store import (
@@ -526,6 +783,7 @@ UI_LOG_FLUSH_INTERVAL_SECONDS = 0.10
 UI_EVENT_HISTORY_MAX = 5000
 UI_EVENT_HISTORY_TRIM_BATCH = 500
 UI_SEND_DONE_SUMMARY_INTERVAL_SECONDS = 1.0
+TIME_LOG_MAX_LINES = 2000
 UI_HIGH_PRIORITY_EVENT_KINDS = frozenset(
     {
         "tts_start",
@@ -549,165 +807,6 @@ UI_FONT_SIZE = 9
 FIXED_STARTUP_COMMAND = "python mic_chunk_client.py"
 WHOAMI_LOCAL_BASE_URL = "http://127.0.0.1:8080"
 WHOAMI_PUBLIC_BASE_URL = "https://sd66afouoqou1cki04eng.apigateway-cn-beijing.volceapi.com/"
-
-AUDIO_TUNING_SPECS: tuple[dict[str, object], ...] = (
-    {
-        "key": "chunk_ms",
-        "label": "chunk_ms",
-        "flag": "--chunk-ms",
-        "default": "20",
-        "type": "int",
-        "min": 10,
-        "max": 60,
-        "unit": "ms",
-        "desc": "麦克风分片时长",
-    },
-    {
-        "key": "queue_size",
-        "label": "queue_size",
-        "flag": "--queue-size",
-        "default": "128",
-        "type": "int",
-        "min": 64,
-        "max": 512,
-        "unit": "chunks",
-        "desc": "发送队列容量",
-    },
-    {
-        "key": "aec_ref_delay_ms",
-        "label": "aec_ref_delay_ms",
-        "flag": "--aec-ref-delay-ms",
-        "default": "160",
-        "type": "int",
-        "min": 0,
-        "max": 500,
-        "unit": "ms",
-        "desc": "AEC参考延迟",
-    },
-    {
-        "key": "aec_max_suppress_gain",
-        "label": "aec_max_suppress_gain",
-        "flag": "--aec-max-suppress-gain",
-        "default": "1.6",
-        "type": "float",
-        "min": 1.0,
-        "max": 3.0,
-        "unit": "ratio",
-        "desc": "回声抑制增益上限",
-    },
-    {
-        "key": "aec_near_end_protect_ratio",
-        "label": "aec_near_end_protect_ratio",
-        "flag": "--aec-near-end-protect-ratio",
-        "default": "1.16",
-        "type": "float",
-        "min": 1.0,
-        "max": 1.5,
-        "unit": "ratio",
-        "desc": "近端语音保护阈值",
-    },
-    {
-        "key": "aec_tts_warmup_mute_ms",
-        "label": "aec_tts_warmup_mute_ms",
-        "flag": "--aec-tts-warmup-mute-ms",
-        "default": "20",
-        "type": "int",
-        "min": 0,
-        "max": 300,
-        "unit": "ms",
-        "desc": "TTS起播静音窗口",
-    },
-    {
-        "key": "aec_tts_ref_wait_mute_ms",
-        "label": "aec_tts_ref_wait_mute_ms",
-        "flag": "--aec-tts-ref-wait-mute-ms",
-        "default": "600",
-        "type": "int",
-        "min": 200,
-        "max": 3000,
-        "unit": "ms",
-        "desc": "参考信号等待静音窗口",
-    },
-)
-
-ASR_FIRST_PROFILE_OVERRIDES: dict[str, str] = {
-    "queue_size": "128",
-    "aec_ref_delay_ms": "160",
-    "aec_max_suppress_gain": "1.6",
-    "aec_near_end_protect_ratio": "1.16",
-    "aec_tts_warmup_mute_ms": "20",
-    "aec_tts_ref_wait_mute_ms": "600",
-}
-AGGRESSIVE_PROFILE_OVERRIDES: dict[str, str] = {
-    "aec_max_suppress_gain": "2.4",
-    "aec_near_end_protect_ratio": "1.18",
-    "aec_tts_warmup_mute_ms": "120",
-    "aec_tts_ref_wait_mute_ms": "2200",
-}
-RUNTIME_AUDIO_CONFIG_FILENAME = "_ui_audio_config.json"
-
-
-@dataclass
-class ConversationTabContext:
-    tab_id: str
-    title: str
-    tab_frame: ttk.Frame
-    conversation_command_var: tk.StringVar
-    conversation_server_env_var: tk.StringVar
-    conversation_profile_status_var: tk.StringVar | None
-    conversation_profile_status_label: tk.Label | None
-    call_record_selected_var: tk.StringVar
-    profile_call_btn: ttk.Button | None
-    conversation_page_switcher: Callable[[str], None] | None
-    dialog_profile_table: ttk.Treeview | None
-    monitor_asr_text: ScrolledText | None
-    monitor_tts_text: ScrolledText | None
-    monitor_nlp_input_text: ScrolledText | None
-    monitor_latency_text: ScrolledText | None
-    monitor_process_status_label: tk.Label | None
-    dialog_conversation_text: ScrolledText | None
-    dialog_intent_text: ScrolledText | None
-    dialog_intent_table: ttk.Treeview | None
-    dialog_billing_text: ScrolledText | None
-    dialog_billing_table: ttk.Treeview | None
-    dialog_intent_queue_text: ScrolledText | None
-    dialog_strategy_text: ScrolledText | None
-    conversation_workflow_text: ScrolledText | None
-    conversation_strategy_history_text: ScrolledText | None
-    conversation_strategy_input_text: tk.Text | None
-    conversation_system_instruction_text: ScrolledText | None
-    conversation_intent_text: ScrolledText | None
-    conversation_customer_profile_text: ScrolledText | None
-    conversation_pending_items_prompt_text: ScrolledText | None
-    conversation_summary_prompt_text: ScrolledText | None
-    conversation_strategy_prompt_text: ScrolledText | None
-    call_record_tree: ttk.Treeview | None
-    call_record_summary_text: ScrolledText | None
-    call_record_commitments_text: ScrolledText | None
-    call_record_strategy_text: ScrolledText | None
-    customer_data_record_tree: ttk.Treeview | None
-    customer_data_panes: ttk.Panedwindow | None
-    customer_data_profile_table: ttk.Treeview | None
-    customer_data_calls_canvas: tk.Canvas | None
-    customer_data_calls_container: ttk.Frame | None
-    customer_data_call_entries_wrap: ttk.Frame | None
-    customer_data_list_sash: int = -1
-    call_record_item_by_iid: dict[str, dict[str, str]] = field(default_factory=dict)
-    customer_data_customer_by_iid: dict[str, str] = field(default_factory=dict)
-    customer_data_case_cache_by_name: dict[str, dict[str, object]] = field(default_factory=dict)
-    conversation_strategy_history: list[dict[str, str]] = field(default_factory=list)
-    conversation_customer_profile_history: list[dict[str, str]] = field(default_factory=list)
-    conversation_intent_generator_history: list[dict[str, str]] = field(default_factory=list)
-    dialog_conversation_history_by_customer: dict[str, list[dict[str, str]]] = field(default_factory=dict)
-    dialog_conversation_active_customer_key: str = ""
-    customer_data_last_render_key: str = ""
-    data_dir: Path | None = None
-    dialog_agent_stream_active: bool = False
-    dialog_agent_stream_content_start: str = ""
-    dialog_intent_history: list[str] = field(default_factory=list)
-    dialog_intent_state_by_customer: dict[str, dict[str, list[str]]] = field(default_factory=dict)
-    current_session_customer_lines: list[str] = field(default_factory=list)
-
 
 def _enable_windows_dpi_awareness() -> None:
     # Prevent blurry bitmap scaling on high-DPI displays.
@@ -742,156 +841,33 @@ class MicChunkUiApp(tk.Tk):
         self._bridge = ClientProcessBridge(on_event=self._event_queue.put)
         self._settings_asr_queue: queue.Queue[UiEvent] = queue.Queue()
         self._settings_asr_bridge = ClientProcessBridge(on_event=self._settings_asr_queue.put)
-        self._event_history: list[dict] = []
+        ctrl_init_session_state_fields(self)
 
-        self._send_count = 0
-        self._send_total_ms = 0
-        self._control_endpoint = ""
-        self._media_endpoint = ""
-        self._single_endpoint = ""
-        self._tts_stream_content_start = ""
-        self._tts_stream_active = False
-        self._asr_stream_content_start = ""
-        self._asr_stream_active = False
-        self._asr_history_lines: list[str] = []
-        self._asr_wait_since = 0.0
-        self._asr_first_commit_seen = False
-        self._asr_wait_warned = False
-        self._main_mic_open = False
-        self._settings_mic_open = False
-        self._dialog_agent_stream_active = False
-        self._dialog_agent_stream_content_start = ""
-        self._settings_asr_stream_active = False
-        self._settings_asr_stream_phase = ""
-        self._settings_asr_stream_line_start = ""
-        self._settings_asr_stream_content_start = ""
-        self._settings_asr_stream_widget: ScrolledText | None = None
-        self._asr_submit_thinking_seen = False
-        self._llm_submit_running = False
-        self._llm_freeze_depth = 0
-        self._llm_freeze_widget_style: dict[tk.Text, tuple[str, str, str, str]] = {}
-        self._runtime_system_prompt = ""
-        self._loaded_workflow_json_text = ""
-        self._loaded_workflow_json_path = ""
-        self._loaded_workflow_json_nodes = 0
-        self._loaded_workflow_json_edges = 0
-        self._loaded_workflow_payload: dict[str, object] | None = None
-        self._flow_active_node_id = ""
-        self._flow_hover_node_id = ""
-        self._flow_tooltip_window: tk.Toplevel | None = None
-        self._flow_tooltip_label: tk.Label | None = None
-        self._editor_dialogs: list[dict[str, object]] = []
-        self._event_backlog_high: deque[UiEvent] = deque()
-        self._event_backlog_normal: deque[UiEvent] = deque()
-        self._settings_event_backlog: deque[UiEvent] = deque()
-        self._pending_log_lines: list[str] = []
-        self._next_log_flush_at = 0.0
-        self._send_done_summary_second = ""
-        self._send_done_summary_count = 0
-        self._send_done_summary_first_chunk = 0
-        self._send_done_summary_last_chunk = 0
-        self._send_done_summary_total_ms = 0
-        self._send_done_summary_max_ms = 0
-        self._send_done_summary_deadline = 0.0
-        self._skip_auto_start_dialog_once = False
-        self._call_overlay_window: tk.Toplevel | None = None
-        self._call_overlay_canvas: tk.Canvas | None = None
-        self._call_overlay_canvas_bg_item: int | None = None
-        self._call_overlay_canvas_calling_item: int | None = None
-        self._call_overlay_canvas_status_item: int | None = None
-        self._call_overlay_calling_anim_id: str | None = None
-        self._call_overlay_calling_step: int = 0
-        self._call_overlay_status_poll_after_id: str | None = None
-        self._call_overlay_bg_image: tk.PhotoImage | None = None
-
-        self._workspace_dir = Path(__file__).resolve().parent.parent
-        self._runtime_log_dir = self._workspace_dir / "logs"
+        ctrl_init_runtime_fields(
+            self,
+            runtime_audio_config_filename=RUNTIME_AUDIO_CONFIG_FILENAME,
+            fixed_startup_command=FIXED_STARTUP_COMMAND,
+        )
+        self._audio_tuning_specs = AUDIO_TUNING_SPECS
+        self._asr_first_profile_overrides = ASR_FIRST_PROFILE_OVERRIDES
+        self._aggressive_profile_overrides = AGGRESSIVE_PROFILE_OVERRIDES
+        self._fixed_startup_command = self._default_command
+        self._whoami_local_base_url = WHOAMI_LOCAL_BASE_URL
+        self._whoami_public_base_url = WHOAMI_PUBLIC_BASE_URL
+        self._async_log_queue: queue.Queue[tuple[Path, str] | None] = queue.Queue()
+        self._async_log_writer_stop = threading.Event()
+        self._async_log_writer_thread = threading.Thread(
+            target=self._async_log_writer_loop,
+            name="ui-log-writer",
+            daemon=True,
+        )
         self._runtime_log_file_path: Path | None = None
-        self._runtime_log_file: TextIO | None = None
-        self._default_command = FIXED_STARTUP_COMMAND
-        self._settings_asr_command = FIXED_STARTUP_COMMAND
-        self._runtime_audio_config_path = self._workspace_dir / RUNTIME_AUDIO_CONFIG_FILENAME
-        self.flow_editor_panel: FlowEditorPanel | None = None
-        self.flow_monitor_canvas: FlowCanvas | None = None
-        self.flow_panes: ttk.Panedwindow | None = None
-        self.flow_json_box: ttk.LabelFrame | None = None
-        self._audio_config_loaded = False
-        self.customer_profile_text: ScrolledText | None = None
-        self.workflow_text: ScrolledText | None = None
-        self.system_instruction_text: ScrolledText | None = None
-        self.ai_analysis_text: ScrolledText | None = None
-        self.call_record_tree: ttk.Treeview | None = None
-        self.customer_data_record_tree: ttk.Treeview | None = None
-        self.call_record_summary_text: ScrolledText | None = None
-        self.call_record_commitments_text: ScrolledText | None = None
-        self.call_record_strategy_text: ScrolledText | None = None
-        self.customer_data_panes: ttk.Panedwindow | None = None
-        self.customer_data_profile_table: ttk.Treeview | None = None
-        self.customer_data_calls_canvas: tk.Canvas | None = None
-        self.customer_data_calls_container: ttk.Frame | None = None
-        self.customer_data_call_entries_wrap: ttk.Frame | None = None
-        self.asr_text: ScrolledText | None = None
-        self.asr_commit_text: ScrolledText | None = None
-        self.tts_text: ScrolledText | None = None
-        self.nlp_input_text: ScrolledText | None = None
-        self.dialog_intent_text: ScrolledText | None = None
-        self.dialog_intent_table: ttk.Treeview | None = None
-        self.dialog_intent_queue_text: ScrolledText | None = None
-        self.dialog_strategy_text: ScrolledText | None = None
-        self._dialog_intent_history: list[str] = []
-        self._dialog_intent_state_by_customer: dict[str, dict[str, list[str]]] = {}
-        self._dialog_intent_state_current_customer_key: str = ""
-        self._current_session_customer_lines: list[str] = []
-        self._current_session_dialog_lines: list[str] = []
-        self.intent_text: ScrolledText | None = None
-        self.intent_system_text: ScrolledText | None = None
-        self.intent_prompt_text: ScrolledText | None = None
-        self.dialog_billing_text: ScrolledText | None = None
-        self.dialog_billing_table: ttk.Treeview | None = None
-        self.profile_call_btn: ttk.Button | None = None
-        self.conversation_profile_status_var: tk.StringVar | None = None
-        self.conversation_profile_status_label: tk.Label | None = None
-        self.monitor_process_status_label: tk.Label | None = None
-        self.conversation_workflow_text: ScrolledText | None = None
-        self.conversation_strategy_history_text: ScrolledText | None = None
-        self.conversation_strategy_input_text: tk.Text | None = None
-        self.conversation_system_instruction_text: ScrolledText | None = None
-        self.conversation_intent_text: ScrolledText | None = None
-        self.conversation_customer_profile_text: ScrolledText | None = None
-        self.conversation_pending_items_prompt_text: ScrolledText | None = None
-        self.conversation_summary_prompt_text: ScrolledText | None = None
-        self.conversation_strategy_prompt_text: ScrolledText | None = None
-        self._conversation_workflow_syncing = False
-        self._conversation_strategy_history: list[dict[str, str]] = []
-        self._conversation_customer_profile_history: list[dict[str, str]] = []
-        self._conversation_intent_generator_history: list[dict[str, str]] = []
-        self._dialog_conversation_history_by_customer: dict[str, list[dict[str, str]]] = {}
-        self._dialog_conversation_active_customer_key = ""
-        self._last_billing_total_cost = 0.0
-        self._last_billing_duration_seconds = 0.0
-        self._last_billing_price_per_minute = 0.0
-        self._call_record_item_by_iid: dict[str, dict[str, str]] = {}
-        self._customer_data_customer_by_iid: dict[str, str] = {}
-        self._customer_data_case_cache_by_name: dict[str, dict[str, object]] = {}
-        self._customer_data_last_render_key = ""
-        self._conversation_page_switcher = None
-        self._main_notebook: ttk.Notebook | None = None
-        self._conversation_tabs: dict[str, ConversationTabContext] = {}
-        self._conversation_tab_id_by_frame_name: dict[str, str] = {}
-        self._conversation_template_tab_id = ""
-        self._active_conversation_tab_id = ""
-        self._bound_conversation_tab_id = ""
-        self._runtime_conversation_tab_id = ""
-        self._conversation_tab_counter = 0
-        self._tab_data_dir_override: Path | None = None
-        self._conversation_tab_registry_tree: ttk.Treeview | None = None
-        self._conversation_tab_registry_iid_to_tab_id: dict[str, str] = {}
-        self._suspend_tab_registry_save = False
-        self._snapshot_autosave_after_id: str | None = None
-        self._snapshot_autosave_interval_ms = 3000
-        self._conversation_strategy_dialog: dict[str, object] | None = None
-        self._conversation_customer_profile_dialog: dict[str, object] | None = None
-        self._conversation_intent_dialog: dict[str, object] | None = None
+        self._time_log_file_path = self._runtime_log_dir / f"time_log_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.log"
+        self._time_log_read_offset = 0
+        self._async_log_writer_thread.start()
+        self._write_time_log_line(f"# time_log_started_at={datetime.now().isoformat(timespec='seconds')}")
+
+        self._call_timer_overlay = ctrl_CallTimerOverlay(self)
 
         self._build_variables()
         self._build_layout()
@@ -941,11 +917,17 @@ class MicChunkUiApp(tk.Tk):
         self.option_add("*Font", (family, size))
         ttk.Style(self).configure(".", font=(family, size))
 
+    @property
+    def active_tab(self) -> "ConversationTabContext | None":
+        """返回当前激活 Tab 的 ConversationTabContext，供业务逻辑直接访问控件，
+        无需通过 app.dialog_conversation_text 等共享别名。"""
+        return self._conversation_tabs.get(self._active_conversation_tab_id)
+
     def _build_variables(self) -> None:
         initial_env = str(os.getenv("MIC_CHUNK_SERVER_ENV", "local") or "").strip().lower()
         if initial_env not in {"local", "public"}:
             initial_env = "local"
-        profile = self._normalize_aec_profile(os.getenv("MIC_CHUNK_AEC_PROFILE", "asr_first"))
+        profile = ctrl_normalize_aec_profile(os.getenv("MIC_CHUNK_AEC_PROFILE", "asr_first"))
         self.command_var = tk.StringVar(value=self._default_command)
         self.server_env_var = tk.StringVar(value=initial_env)
         self.conversation_command_var = tk.StringVar(value=self._default_command)
@@ -991,210 +973,39 @@ class MicChunkUiApp(tk.Tk):
             UI_FONT_SIZE=UI_FONT_SIZE,
         )
 
-    @staticmethod
-    def _normalize_aec_profile(raw: str | None) -> str:
-        profile = str(raw or "asr_first").strip().lower()
-        if profile not in {"asr_first", "aggressive"}:
-            return "asr_first"
-        return profile
-
-    def _get_profile_tuning_defaults(self, profile: str) -> dict[str, str]:
-        normalized = self._normalize_aec_profile(profile)
-        values = {str(spec["key"]): str(spec["default"]) for spec in AUDIO_TUNING_SPECS}
-        if normalized == "aggressive":
-            values.update(AGGRESSIVE_PROFILE_OVERRIDES)
-        else:
-            values.update(ASR_FIRST_PROFILE_OVERRIDES)
-        return values
-
-    @staticmethod
-    def _format_numeric_for_option(value: float, value_type: str) -> str:
-        if value_type == "int":
-            return str(int(value))
-        text = f"{float(value):.3f}".rstrip("0").rstrip(".")
-        return text or "0"
-
-    @staticmethod
-    def _remove_command_option(tokens: list[str], flag: str) -> None:
-        i = 0
-        while i < len(tokens):
-            token = str(tokens[i] or "")
-            if token == flag:
-                del tokens[i]
-                if i < len(tokens):
-                    nxt = str(tokens[i] or "")
-                    if nxt and (not nxt.startswith("--")):
-                        del tokens[i]
-                continue
-            if token.startswith(f"{flag}="):
-                del tokens[i]
-                continue
-            i += 1
-
-    @staticmethod
-    def _read_command_option(tokens: list[str], flag: str) -> str:
-        for idx, token in enumerate(tokens):
-            token_text = str(token or "").strip()
-            if token_text == flag:
-                if idx + 1 >= len(tokens):
-                    return ""
-                value = str(tokens[idx + 1] or "").strip()
-                if value.startswith("--"):
-                    return ""
-                return value
-            if token_text.startswith(f"{flag}="):
-                return token_text.split("=", 1)[1].strip()
-        return ""
-
     def _set_audio_config_status(self, text: str) -> None:
-        if isinstance(getattr(self, "audio_config_status_var", None), tk.StringVar):
-            self.audio_config_status_var.set(str(text or "").strip() or "-")
+        ctrl_set_audio_config_status(self, text)
 
     def _load_audio_config_from_command_text(self, command_text: str, update_status: bool = True) -> None:
-        tokens = self._safe_split(command_text)
-        if not tokens:
-            return
-        for spec in AUDIO_TUNING_SPECS:
-            key = str(spec["key"])
-            flag = str(spec["flag"])
-            current = self._read_command_option(tokens, flag)
-            if not current:
-                continue
-            var = getattr(self, f"audio_{key}_var", None)
-            if isinstance(var, tk.StringVar):
-                var.set(current)
-        if update_status:
-            self._set_audio_config_status("已从当前启动命令回填参数")
+        ctrl_load_audio_config_from_command_text(self, command_text, update_status=update_status)
 
     def _load_audio_config_from_current_command(self, update_status: bool = True) -> None:
-        command_text = (self.command_var.get() or "").strip()
-        if not command_text:
-            command_text = (self.conversation_command_var.get() or "").strip()
-        self._load_audio_config_from_command_text(command_text, update_status=update_status)
+        ctrl_load_audio_config_from_current_command(self, update_status=update_status)
 
     def _reset_audio_config_defaults_for_profile(self, apply_profile_overrides: bool = True, update_status: bool = True) -> None:
-        profile = self._normalize_aec_profile(self.aec_profile_var.get())
-        self.aec_profile_var.set(profile)
-        defaults = self._get_profile_tuning_defaults(profile if apply_profile_overrides else "asr_first")
-        for key, value in defaults.items():
-            var = getattr(self, f"audio_{key}_var", None)
-            if isinstance(var, tk.StringVar):
-                var.set(str(value))
-        if update_status:
-            profile_label = "ASR优先" if profile == "asr_first" else "增强抑制"
-            self._set_audio_config_status(f"已恢复默认值（{profile_label}）")
+        ctrl_reset_audio_config_defaults_for_profile(
+            self,
+            apply_profile_overrides=apply_profile_overrides,
+            update_status=update_status,
+        )
 
     def _reset_audio_config_defaults(self) -> None:
-        self._reset_audio_config_defaults_for_profile(apply_profile_overrides=True, update_status=True)
+        ctrl_reset_audio_config_defaults(self)
 
     def _collect_validated_audio_tuning_values(self, *, show_error: bool) -> dict[str, str] | None:
-        values: dict[str, str] = {}
-        for spec in AUDIO_TUNING_SPECS:
-            key = str(spec["key"])
-            label = str(spec["label"])
-            value_type = str(spec["type"])
-            min_value = float(spec["min"])
-            max_value = float(spec["max"])
-            unit = str(spec["unit"])
-            var = getattr(self, f"audio_{key}_var", None)
-            raw = str(var.get() if isinstance(var, tk.StringVar) else "").strip()
-            if not raw:
-                raw = str(spec["default"])
-            try:
-                if value_type == "int":
-                    parsed = float(int(raw))
-                else:
-                    parsed = float(raw)
-            except Exception:
-                if show_error:
-                    messagebox.showerror(
-                        "参数格式错误",
-                        f"{label} 必须是数字，单位 {unit}，范围 {self._format_numeric_for_option(min_value, value_type)} ~ {self._format_numeric_for_option(max_value, value_type)}。",
-                    )
-                return None
-            if (parsed < min_value) or (parsed > max_value):
-                if show_error:
-                    messagebox.showerror(
-                        "参数超出范围",
-                        f"{label} 超出范围，单位 {unit}，允许 {self._format_numeric_for_option(min_value, value_type)} ~ {self._format_numeric_for_option(max_value, value_type)}。",
-                    )
-                return None
-            normalized = self._format_numeric_for_option(parsed, value_type)
-            if isinstance(var, tk.StringVar):
-                var.set(normalized)
-            values[key] = normalized
-        return values
+        return ctrl_collect_validated_audio_tuning_values(self, show_error=show_error)
 
     def _apply_audio_tuning_values_to_command(self, command_text: str, values: dict[str, str]) -> str:
-        command = str(command_text or "").strip()
-        if not command:
-            return command
-        tokens = self._safe_split(command)
-        if not tokens:
-            return command
-        for spec in AUDIO_TUNING_SPECS:
-            key = str(spec["key"])
-            flag = str(spec["flag"])
-            value = values.get(key, "")
-            if not value:
-                continue
-            self._remove_command_option(tokens, flag)
-            tokens.extend([flag, value])
-        return self._safe_join(tokens)
+        return ctrl_apply_audio_tuning_values_to_command(self, command_text, values)
 
     def _build_runtime_audio_config_payload(self, values: dict[str, str]) -> dict[str, object]:
-        return {
-            "strict_webrtc_required": bool(self.strict_webrtc_required_var.get()),
-            "aec_profile": self._normalize_aec_profile(self.aec_profile_var.get()),
-            "audio_tuning": values,
-        }
+        return ctrl_build_runtime_audio_config_payload(self, values)
 
     def _save_runtime_audio_config(self, values: dict[str, str] | None = None, *, silent: bool = False) -> bool:
-        payload_values = values if isinstance(values, dict) else self._collect_validated_audio_tuning_values(show_error=not silent)
-        if not isinstance(payload_values, dict):
-            return False
-        payload = self._build_runtime_audio_config_payload(payload_values)
-        try:
-            self._runtime_audio_config_path.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-        except Exception as exc:
-            if not silent:
-                messagebox.showerror("保存失败", f"参数配置保存失败：{exc}")
-            return False
-        return True
+        return ctrl_save_runtime_audio_config(self, values, silent=silent)
 
     def _load_runtime_audio_config(self) -> bool:
-        path = self._runtime_audio_config_path
-        if not path.exists():
-            self._set_audio_config_status("未发现已保存配置，已加载默认值")
-            return False
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            self._set_audio_config_status(f"配置文件读取失败，已使用默认值: {exc}")
-            return False
-        if not isinstance(raw, dict):
-            self._set_audio_config_status("配置文件格式异常，已使用默认值")
-            return False
-        self.strict_webrtc_required_var.set(bool(raw.get("strict_webrtc_required", True)))
-        profile = self._normalize_aec_profile(str(raw.get("aec_profile", self.aec_profile_var.get()) or "asr_first"))
-        self.aec_profile_var.set(profile)
-        tuning_raw = raw.get("audio_tuning", {})
-        defaults = self._get_profile_tuning_defaults(profile)
-        if isinstance(tuning_raw, dict):
-            for key, value in tuning_raw.items():
-                key_text = str(key)
-                if key_text in defaults:
-                    defaults[key_text] = str(value)
-        for key, value in defaults.items():
-            var = getattr(self, f"audio_{key}_var", None)
-            if isinstance(var, tk.StringVar):
-                var.set(str(value))
-        os.environ["MIC_CHUNK_AEC_PROFILE"] = profile
-        self._set_audio_config_status(f"已加载参数配置: {path.name}")
-        return True
+        return ctrl_load_runtime_audio_config(self)
 
     def _apply_audio_config_to_commands(
         self,
@@ -1203,39 +1014,15 @@ class MicChunkUiApp(tk.Tk):
         update_status: bool = True,
         show_error: bool = True,
     ) -> bool:
-        values = self._collect_validated_audio_tuning_values(show_error=show_error)
-        if values is None:
-            return False
-        profile = self._normalize_aec_profile(self.aec_profile_var.get())
-        self.aec_profile_var.set(profile)
-        os.environ["MIC_CHUNK_AEC_PROFILE"] = profile
-        startup_command = str(self._default_command or FIXED_STARTUP_COMMAND).strip() or FIXED_STARTUP_COMMAND
-        startup_command = self._apply_audio_tuning_values_to_command(startup_command, values)
-        self.command_var.set(startup_command)
-        self.conversation_command_var.set(startup_command)
-        self._apply_server_env_to_command()
-        self._apply_server_env_to_conversation_command()
-        settings_asr_command = str(self.command_var.get() or startup_command).strip()
-        self.settings_asr_command_var.set(settings_asr_command)
-        self._settings_asr_command = settings_asr_command
-        if save_config:
-            if not self._save_runtime_audio_config(values, silent=False):
-                return False
-        if update_status:
-            self._set_audio_config_status("参数已应用并保存")
-        return True
+        return ctrl_apply_audio_config_to_commands(
+            self,
+            save_config=save_config,
+            update_status=update_status,
+            show_error=show_error,
+        )
 
     def _save_audio_config_from_ui(self) -> None:
-        values = self._collect_validated_audio_tuning_values(show_error=True)
-        if values is None:
-            return
-        profile = self._normalize_aec_profile(self.aec_profile_var.get())
-        self.aec_profile_var.set(profile)
-        os.environ["MIC_CHUNK_AEC_PROFILE"] = profile
-        self._settings_asr_command = str(self.settings_asr_command_var.get() or self._settings_asr_command or "").strip()
-        ok = self._save_runtime_audio_config(values, silent=False)
-        if ok:
-            self._set_audio_config_status("参数配置已保存")
+        ctrl_save_audio_config_from_ui(self)
 
     def _build_conversation_tab(
         self,
@@ -1244,6 +1031,8 @@ class MicChunkUiApp(tk.Tk):
         tab_title: str,
         command_value: str,
         env_value: str,
+        *,
+        tab_id_override: str = "",
     ) -> ConversationTabContext:
         return ctrl_build_conversation_tab(
             self,
@@ -1252,6 +1041,7 @@ class MicChunkUiApp(tk.Tk):
             tab_title,
             command_value,
             env_value,
+            tab_id_override=tab_id_override,
             UI_FONT_FAMILY=UI_FONT_FAMILY,
             UI_FONT_SIZE=UI_FONT_SIZE,
             conversation_tab_context_cls=ConversationTabContext,
@@ -1274,6 +1064,9 @@ class MicChunkUiApp(tk.Tk):
     def _on_main_notebook_tab_changed(self, _event=None) -> None:
         ctrl_on_main_notebook_tab_changed(self, _event=_event)
 
+    def _on_main_notebook_tab_click(self, event=None) -> str | None:
+        return ctrl_on_main_notebook_tab_click(self, event=event)
+
     def _build_unique_conversation_tab_title(self, base_title: str) -> str:
         return ctrl_build_unique_conversation_tab_title(self, base_title)
 
@@ -1292,6 +1085,7 @@ class MicChunkUiApp(tk.Tk):
         copy_source_data: bool = True,
         select_new_tab: bool = True,
         persist: bool = True,
+        reset_workflow_fields: bool = True,
     ) -> str | None:
         return ctrl_create_conversation_tab_internal(
             self,
@@ -1301,208 +1095,24 @@ class MicChunkUiApp(tk.Tk):
             copy_source_data=copy_source_data,
             select_new_tab=select_new_tab,
             persist=persist,
+            reset_workflow_fields=reset_workflow_fields,
         )
 
     def _create_conversation_tab_from_settings(self) -> None:
         ctrl_create_conversation_tab_from_settings(self)
 
     def _resolve_whoami_base_url(self) -> str:
-        command = (
-            self.conversation_command_var.get().strip()
-            or self.command_var.get().strip()
-            or FIXED_STARTUP_COMMAND
-        )
-        tokens = self._safe_split(command)
-        env = (self.conversation_server_env_var.get() or self.server_env_var.get() or "local").strip().lower()
-        if env not in {"local", "public"}:
-            env = "local"
-        base_url = ""
-        local_base_url = WHOAMI_LOCAL_BASE_URL
-        public_base_url = WHOAMI_PUBLIC_BASE_URL
-        i = 0
-        while i < len(tokens):
-            token = str(tokens[i]).strip()
-            if token == "--server-env" and (i + 1) < len(tokens):
-                value = str(tokens[i + 1]).strip().lower()
-                if value in {"local", "public"}:
-                    env = value
-                i += 2
-                continue
-            if token == "--base-url" and (i + 1) < len(tokens):
-                base_url = str(tokens[i + 1]).strip()
-                i += 2
-                continue
-            if token == "--local-base-url" and (i + 1) < len(tokens):
-                local_base_url = str(tokens[i + 1]).strip() or local_base_url
-                i += 2
-                continue
-            if token == "--public-base-url" and (i + 1) < len(tokens):
-                public_base_url = str(tokens[i + 1]).strip() or public_base_url
-                i += 2
-                continue
-            i += 1
-        resolved = base_url or (public_base_url if env == "public" else local_base_url)
-        resolved = resolved.strip()
-        if resolved.startswith("ws://"):
-            resolved = "http://" + resolved[len("ws://") :]
-        elif resolved.startswith("wss://"):
-            resolved = "https://" + resolved[len("wss://") :]
-        return resolved.rstrip("/")
+        return ctrl_resolve_whoami_base_url(self)
 
     def _request_whoami_from_settings(self) -> None:
-        base_url = self._resolve_whoami_base_url()
-        if not base_url:
-            messagebox.showerror("Whoami失败", "无法解析服务端地址。")
-            return
-        url = f"{base_url}/debug/whoami"
-        ts_text = datetime.now().strftime("%H:%M:%S")
-        self._append_line(self.log_text, f"[{ts_text}] [WHOAMI] request {url}")
-        try:
-            resp = requests.get(url, timeout=5.0)
-            body_text = (resp.text or "").strip()
-            payload: dict[str, object]
-            try:
-                parsed = resp.json()
-                payload = parsed if isinstance(parsed, dict) else {"body": parsed}
-            except Exception:
-                payload = {"body": body_text[:800]}
-            payload["status_code"] = resp.status_code
-            self._append_line(
-                self.log_text,
-                f"[{ts_text}] [WHOAMI] response {json.dumps(payload, ensure_ascii=False)}",
-            )
-            host = str(payload.get("host", "") or "")
-            pid = str(payload.get("pid", "") or "")
-            revision = str(payload.get("revision", "") or "")
-            log_dir = str(payload.get("log_dir", "") or "")
-            log_file = str(payload.get("log_file", "") or "")
-            messagebox.showinfo(
-                "Whoami",
-                (
-                    f"host: {host}\n"
-                    f"pid: {pid}\n"
-                    f"revision: {revision}\n"
-                    f"log_dir: {log_dir}\n"
-                    f"log_file: {log_file}"
-                ),
-            )
-        except Exception as exc:
-            self._append_line(self.log_text, f"[{ts_text}] [WHOAMI] failed: {exc}")
-            messagebox.showerror("Whoami失败", str(exc))
+        ctrl_request_whoami_from_settings(self)
 
     @staticmethod
     def _probe_public_ip(*, use_env_proxy: bool) -> tuple[str, str]:
-        urls = [
-            "https://api.ipify.org?format=json",
-            "https://httpbin.org/ip",
-            "https://ifconfig.me/ip",
-        ]
-        session = requests.Session()
-        session.trust_env = bool(use_env_proxy)
-        if use_env_proxy:
-            proxies = None
-        else:
-            proxies = {"http": None, "https": None}
-        last_error = ""
-        try:
-            for url in urls:
-                try:
-                    resp = session.get(url, timeout=3.5, proxies=proxies)
-                    text = (resp.text or "").strip()
-                    if resp.status_code != 200:
-                        last_error = f"HTTP {resp.status_code} @ {url}"
-                        continue
-                    ip_value = ""
-                    try:
-                        payload = resp.json()
-                        if isinstance(payload, dict):
-                            if isinstance(payload.get("ip"), str):
-                                ip_value = payload.get("ip", "").strip()
-                            elif isinstance(payload.get("origin"), str):
-                                ip_value = payload.get("origin", "").strip()
-                    except Exception:
-                        pass
-                    if (not ip_value) and text:
-                        ip_value = " ".join(text.split())
-                    if ip_value:
-                        return ip_value, url
-                    last_error = f"empty body @ {url}"
-                except Exception as exc:
-                    last_error = f"{url}: {exc}"
-                    continue
-        finally:
-            try:
-                session.close()
-            except Exception:
-                pass
-        return "", last_error or "probe failed"
+        return ctrl_probe_public_ip(use_env_proxy=use_env_proxy)
 
     def _request_network_probe_from_settings(self) -> None:
-        ts_text = datetime.now().strftime("%H:%M:%S")
-        base_url = self._resolve_whoami_base_url() or "https://example.com"
-        proxy_keys = (
-            "http_proxy",
-            "https_proxy",
-            "all_proxy",
-            "no_proxy",
-            "HTTP_PROXY",
-            "HTTPS_PROXY",
-            "ALL_PROXY",
-            "NO_PROXY",
-        )
-        env_proxy = {k: str(os.environ.get(k, "") or "").strip() for k in proxy_keys}
-        env_proxy = {k: v for k, v in env_proxy.items() if v}
-        request_proxy = requests.utils.get_environ_proxies(base_url) or {}
-        self._append_line(self.log_text, f"[{ts_text}] [NET] probe start base={base_url}")
-        try:
-            ip_with_proxy, src_with = self._probe_public_ip(use_env_proxy=True)
-            ip_direct, src_direct = self._probe_public_ip(use_env_proxy=False)
-            proxy_env_on = bool(env_proxy)
-            request_proxy_on = bool(request_proxy)
-            same_ip = bool(ip_with_proxy and ip_direct and ip_with_proxy == ip_direct)
-            different_ip = bool(ip_with_proxy and ip_direct and ip_with_proxy != ip_direct)
-            likely_proxy = False
-            status_text = "未知"
-            if different_ip and request_proxy_on:
-                likely_proxy = True
-                status_text = "是（代理出口与直连出口不同）"
-            elif same_ip and request_proxy_on:
-                status_text = "可能未生效（已配置代理但出口IP一致）"
-            elif request_proxy_on and (ip_with_proxy and (not ip_direct)):
-                likely_proxy = True
-                status_text = "是（代理可达，直连探测失败）"
-            elif request_proxy_on:
-                status_text = "可能是（检测信息不足）"
-            else:
-                status_text = "否（未检测到代理配置）"
-
-            payload = {
-                "proxy_env_on": proxy_env_on,
-                "request_proxy_on": request_proxy_on,
-                "likely_proxy_in_use": likely_proxy,
-                "ip_via_env_proxy": ip_with_proxy,
-                "ip_via_direct": ip_direct,
-                "probe_src_via_proxy": src_with,
-                "probe_src_via_direct": src_direct,
-                "request_proxy": request_proxy,
-                "env_proxy": env_proxy,
-            }
-            self._append_line(self.log_text, f"[{ts_text}] [NET] result {json.dumps(payload, ensure_ascii=False)}")
-            messagebox.showinfo(
-                "网络检测",
-                (
-                    f"是否走代理: {status_text}\n\n"
-                    f"代理出口IP: {ip_with_proxy or '-'}\n"
-                    f"直连出口IP: {ip_direct or '-'}\n"
-                    f"代理探测: {src_with or '-'}\n"
-                    f"直连探测: {src_direct or '-'}\n"
-                    f"requests代理配置: {'有' if request_proxy_on else '无'}\n"
-                    f"环境变量代理: {'有' if proxy_env_on else '无'}"
-                ),
-            )
-        except Exception as exc:
-            self._append_line(self.log_text, f"[{ts_text}] [NET] failed: {exc}")
-            messagebox.showerror("网络检测失败", str(exc))
+        ctrl_request_network_probe_from_settings(self)
 
     def _delete_selected_conversation_tab_from_settings(self) -> None:
         ctrl_delete_selected_conversation_tab_from_settings(self)
@@ -1528,8 +1138,8 @@ class MicChunkUiApp(tk.Tk):
     def _get_conversation_tab_snapshot_path(self, tab_id: str) -> Path | None:
         return ctrl_get_conversation_tab_snapshot_path(self, tab_id)
 
-    def _save_persisted_conversation_tab_snapshots(self) -> None:
-        ctrl_save_persisted_conversation_tab_snapshots(self)
+    def _save_persisted_conversation_tab_snapshots(self, persist_workflow_fields: bool = False) -> None:
+        ctrl_save_persisted_conversation_tab_snapshots(self, persist_workflow_fields=persist_workflow_fields)
 
     def _load_persisted_conversation_tab_snapshots(self) -> None:
         ctrl_load_persisted_conversation_tab_snapshots(self)
@@ -1748,13 +1358,33 @@ class MicChunkUiApp(tk.Tk):
         )
 
     def _start_from_customer_data_call_icon(self) -> None:
+        is_running = bool(self._bridge.running) or (
+            str(self.state_var.get() if hasattr(self, "state_var") else "").strip().lower() == "running"
+        )
+        if is_running:
+            messagebox.showwarning("当前通话未结束", "当前通话未结束，请挂断后再拨。")
+            return
         self._skip_auto_start_dialog_once = True
         self._open_customer_call_overlay()
-        was_running = bool(self._bridge.running)
-        self._start_from_conversation_profile(prefer_customer_data_context=False)
+        self._call_overlay_reconnect_pending = False
+        self._call_overlay_restart_in_progress = False
+        self._call_overlay_restart_scheduled = False
+        self._start_from_conversation_profile(prefer_customer_data_context=True)
         if self._skip_auto_start_dialog_once and (not self._bridge.running):
             self._skip_auto_start_dialog_once = False
-        if (not was_running) and (not self._bridge.running):
+        if not self._bridge.running:
+            self._close_customer_call_overlay()
+
+    def _resume_customer_data_call_icon_after_stop(self) -> None:
+        self._call_overlay_reconnect_pending = False
+        self._call_overlay_restart_scheduled = False
+        self._skip_auto_start_dialog_once = True
+        self._open_customer_call_overlay()
+        self._start_from_conversation_profile(prefer_customer_data_context=True)
+        if self._skip_auto_start_dialog_once and (not self._bridge.running):
+            self._skip_auto_start_dialog_once = False
+        if not self._bridge.running:
+            self._call_overlay_restart_in_progress = False
             self._close_customer_call_overlay()
 
     def _build_profile_text_from_dialog_profile_table(self) -> str:
@@ -1794,7 +1424,12 @@ class MicChunkUiApp(tk.Tk):
     def _stop(self) -> None:
         self._bridge.stop()
         self._set_microphone_open("main", False, reason="stop_clicked")
-        self._close_customer_call_overlay()
+        try:
+            self._call_timer_overlay.freeze()
+        except Exception:
+            pass
+        if not bool(getattr(self, "_call_overlay_reconnect_pending", False)):
+            self._close_customer_call_overlay()
 
     def _stop_settings_asr(self) -> None:
         self._settings_asr_bridge.stop()
@@ -1815,7 +1450,8 @@ class MicChunkUiApp(tk.Tk):
         self._close_customer_call_overlay()
 
         # 同步加载背景图片，确保窗口直接以正确尺寸打开
-        bg_path = Path(__file__).resolve().parent / "1.png"
+        resource_dir = getattr(self, "_ui_resource_dir", Path(__file__).resolve().parent)
+        bg_path = Path(resource_dir) / "1.png"
         bg_image: tk.PhotoImage | None = None
         try:
             bg_image = tk.PhotoImage(file=str(bg_path))
@@ -1827,20 +1463,28 @@ class MicChunkUiApp(tk.Tk):
             _default_w = bg_image.width()
             _default_h = bg_image.height()
         else:
-            _default_w, _default_h = 320, 180
+            _default_w, _default_h = 520, 300
+
+        screen_w = int(self.winfo_screenwidth() or 1600)
+        screen_h = int(self.winfo_screenheight() or 900)
+        min_w = min(screen_w - 80, 520)
+        min_h = min(screen_h - 120, 300)
+        _default_w = max(min_w, _default_w)
+        _default_h = max(min_h, _default_h)
 
         win = tk.Toplevel(self)
         win.title("Call Overlay")
         win.attributes("-topmost", True)
+        win.overrideredirect(True)
         win.resizable(False, False)
         win.configure(bg="#000000")
+        win.protocol("WM_DELETE_WINDOW", self._hangup_customer_call_overlay)
 
-        screen_w = int(self.winfo_screenwidth() or 1600)
-        screen_h = int(self.winfo_screenheight() or 900)
         pos_x = max(0, int((screen_w - _default_w) / 2))
         pos_y = max(0, int((screen_h - _default_h) / 2))
         win.geometry(f"{_default_w}x{_default_h}+{pos_x}+{pos_y}")
         win.lift()
+        win.update_idletasks()
 
         # Canvas covers entire window; text items have no background → transparent
         canvas = tk.Canvas(win, bg="#000000", highlightthickness=0, bd=0,
@@ -1855,9 +1499,9 @@ class MicChunkUiApp(tk.Tk):
             canvas.itemconfig(bg_item, image=bg_image)
         calling_item = canvas.create_text(
             cx, cy,
-            text="正在呼叫",
+            text="连接中...",
             fill="#00ff00",
-            font=(UI_FONT_FAMILY, 22, "bold"),
+            font=(UI_FONT_FAMILY, 24, "bold"),
             anchor="center",
         )
         status_var = self.conversation_profile_status_var
@@ -1866,20 +1510,105 @@ class MicChunkUiApp(tk.Tk):
             sx, sy,
             text=f"状态: {status_text}",
             fill="#ffffff",
-            font=(UI_FONT_FAMILY, 10),
+            font=(UI_FONT_FAMILY, 10, "bold"),
             anchor="center",
         )
-
-        canvas.bind("<Button-1>", self._on_customer_call_overlay_click, add="+")
-        win.bind("<Button-1>", self._on_customer_call_overlay_click, add="+")
+        btn_font_size = 14
+        btn_w = max(110, int(_default_w * 0.18))
+        btn_h = max(46, int(_default_h * 0.14))
+        btn_y = int(_default_h * 0.72)
+        accept_button = tk.Button(
+            win,
+            text="接听",
+            font=(UI_FONT_FAMILY, btn_font_size, "bold"),
+            fg="#ffffff",
+            bg="#169c46",
+            disabledforeground="#f2f2f2",
+            activeforeground="#ffffff",
+            activebackground="#1bb14f",
+            bd=0,
+            relief="flat",
+            cursor="hand2",
+            command=self._accept_customer_call_overlay,
+        )
+        accept_btn_x = max(24, int(_default_w * 0.20))
+        accept_button.place(x=accept_btn_x, y=btn_y, width=btn_w, height=btn_h)
+        accept_button.place_forget()
+        hangup_button = tk.Button(
+            win,
+            text="挂断",
+            font=(UI_FONT_FAMILY, btn_font_size, "bold"),
+            fg="#ffffff",
+            bg="#c9362b",
+            activeforeground="#ffffff",
+            activebackground="#de4034",
+            bd=0,
+            relief="flat",
+            cursor="hand2",
+            command=self._hangup_customer_call_overlay,
+        )
+        hangup_btn_x = _default_w - btn_w - max(24, int(_default_w * 0.20))
+        hangup_button.place(x=hangup_btn_x, y=btn_y, width=btn_w, height=btn_h)
+        hangup_button.place_forget()
 
         self._call_overlay_window = win
         self._call_overlay_canvas = canvas
         self._call_overlay_canvas_bg_item = bg_item
         self._call_overlay_canvas_calling_item = calling_item
         self._call_overlay_canvas_status_item = status_item
+        self._call_overlay_accept_button = accept_button
+        self._call_overlay_hangup_button = hangup_button
+        self._call_overlay_accept_button_place = {
+            "x": accept_btn_x,
+            "y": btn_y,
+            "width": btn_w,
+            "height": btn_h,
+        }
+        self._call_overlay_hangup_button_place = {
+            "x": hangup_btn_x,
+            "y": btn_y,
+            "width": btn_w,
+            "height": btn_h,
+        }
         self._call_overlay_calling_anim_id = None
         self._call_overlay_calling_step = 0
+        self._call_overlay_audio_started = False
+        self._call_overlay_audio_click_ready = False
+        self._call_overlay_phase = "connecting"
+        self._call_overlay_drag_offset = None
+
+        def _start_overlay_drag(event) -> None:
+            try:
+                self._call_overlay_drag_offset = (
+                    int(getattr(event, "x_root", 0)) - int(win.winfo_x()),
+                    int(getattr(event, "y_root", 0)) - int(win.winfo_y()),
+                )
+            except Exception:
+                self._call_overlay_drag_offset = None
+
+        def _drag_overlay(event) -> None:
+            offset = getattr(self, "_call_overlay_drag_offset", None)
+            if not isinstance(offset, tuple) or len(offset) != 2:
+                return
+            try:
+                next_x = int(getattr(event, "x_root", 0)) - int(offset[0])
+                next_y = int(getattr(event, "y_root", 0)) - int(offset[1])
+                win.geometry(f"+{max(0, next_x)}+{max(0, next_y)}")
+            except Exception:
+                return
+
+        def _end_overlay_drag(_event=None) -> None:
+            self._call_overlay_drag_offset = None
+
+        canvas.bind("<ButtonPress-1>", _start_overlay_drag, add="+")
+        canvas.bind("<B1-Motion>", _drag_overlay, add="+")
+        canvas.bind("<ButtonRelease-1>", _end_overlay_drag, add="+")
+        canvas.tag_bind(calling_item, "<ButtonPress-1>", _start_overlay_drag, add="+")
+        canvas.tag_bind(calling_item, "<B1-Motion>", _drag_overlay, add="+")
+        canvas.tag_bind(calling_item, "<ButtonRelease-1>", _end_overlay_drag, add="+")
+        canvas.tag_bind(status_item, "<ButtonPress-1>", _start_overlay_drag, add="+")
+        canvas.tag_bind(status_item, "<B1-Motion>", _drag_overlay, add="+")
+        canvas.tag_bind(status_item, "<ButtonRelease-1>", _end_overlay_drag, add="+")
 
         # Bounce animation: 8-frame vertical sine approximation at 120 ms/frame
         _BOUNCE_Y = [0, -5, -9, -12, -13, -12, -9, -5]
@@ -1904,18 +1633,56 @@ class MicChunkUiApp(tk.Tk):
             base_cy = int(h * 0.40)
             dy = _BOUNCE_Y[step % len(_BOUNCE_Y)]
             canvas.coords(calling_item, base_cx, base_cy + dy)
+            phase = str(getattr(self, "_call_overlay_phase", "connecting") or "connecting")
             dot_text = _DOTS[(step // len(_BOUNCE_Y)) % len(_DOTS)]
-            canvas.itemconfig(calling_item, text=f"正在呼叫{dot_text}")
+            if phase == "connected":
+                phase_text = "通话中..."
+            elif phase == "calling":
+                phase_text = f"呼叫中{dot_text}"
+            else:
+                phase_text = f"连接中{dot_text}"
+            canvas.itemconfig(calling_item, text=phase_text)
             self._call_overlay_calling_step += 1
             self._call_overlay_calling_anim_id = win.after(120, _animate_calling)
 
         self._call_overlay_calling_anim_id = win.after(0, _animate_calling)
-
         self._schedule_customer_call_overlay_status_poll()
 
-    def _on_customer_call_overlay_click(self, _event=None) -> None:
+    def _set_customer_call_overlay_buttons_visible(self, visible: bool) -> None:
+        accept_button = getattr(self, "_call_overlay_accept_button", None)
+        hangup_button = getattr(self, "_call_overlay_hangup_button", None)
+        if accept_button is not None:
+            try:
+                if visible and isinstance(getattr(self, "_call_overlay_accept_button_place", None), dict):
+                    accept_button.place(**self._call_overlay_accept_button_place)
+                else:
+                    accept_button.place_forget()
+            except Exception:
+                pass
+        if hangup_button is not None:
+            try:
+                if visible and isinstance(getattr(self, "_call_overlay_hangup_button_place", None), dict):
+                    hangup_button.place(**self._call_overlay_hangup_button_place)
+                else:
+                    hangup_button.place_forget()
+            except Exception:
+                pass
+
+    def _accept_customer_call_overlay(self) -> None:
+        if str(getattr(self, "_call_overlay_phase", "") or "") != "calling":
+            return
+        if not bool(getattr(self, "_call_overlay_audio_started", False)):
+            return
+        if not bool(getattr(self, "_call_overlay_audio_click_ready", False)):
+            return
+        status_var = self.conversation_profile_status_var
+        status_text = str(status_var.get() if isinstance(status_var, tk.StringVar) else "stopped | endpoint=-")
+        state_prefix = status_text.strip().lower().split("|", 1)[0].strip()
+        if state_prefix != "running":
+            return
         self._stop_customer_call_overlay_audio_loop()
-        # 停止跳动动画，防止其覆盖文字
+        self._call_overlay_phase = "connected"
+        # 停止跳动动画，避免继续覆盖接通状态文案
         anim_id = self._call_overlay_calling_anim_id
         if anim_id is not None:
             try:
@@ -1932,7 +1699,22 @@ class MicChunkUiApp(tk.Tk):
                 return
         except Exception:
             return
-        canvas.itemconfig(calling_item, text="已接通...", fill="#ffff00")
+        canvas.itemconfig(calling_item, text="通话中...", fill="#ffff00")
+        accept_button = self._call_overlay_accept_button
+        if accept_button is not None:
+            try:
+                accept_button.configure(
+                    state="disabled",
+                    cursor="arrow",
+                    bg="#7a7a7a",
+                    activebackground="#7a7a7a",
+                    disabledforeground="#f2f2f2",
+                )
+            except Exception:
+                pass
+
+    def _hangup_customer_call_overlay(self) -> None:
+        self._close_customer_call_overlay(disconnect=True)
 
     def _schedule_customer_call_overlay_status_poll(self) -> None:
         if self._call_overlay_status_poll_after_id:
@@ -1960,10 +1742,27 @@ class MicChunkUiApp(tk.Tk):
             canvas.itemconfig(item_id, text=f"状态: {status_text}")
         except Exception:
             return
+        state_prefix = status_text.strip().lower().split("|", 1)[0].strip()
+        if state_prefix != "running":
+            # 进程已退出 → 重置为连接中
+            self._call_overlay_phase = "connecting"
+            self._call_overlay_ws_connected = False
+            calling_item = self._call_overlay_canvas_calling_item
+            if calling_item is not None:
+                try:
+                    canvas.itemconfig(calling_item, text="连接中...", fill="#00ff00")
+                except Exception:
+                    pass
+            if bool(getattr(self, "_call_overlay_audio_started", False)):
+                self._stop_customer_call_overlay_audio_loop()
+            self._set_customer_call_overlay_buttons_visible(False)
         self._schedule_customer_call_overlay_status_poll()
 
     def _start_customer_call_overlay_audio_loop(self) -> None:
-        audio_path = Path(__file__).resolve().parent / "1.wav"
+        resource_dir = getattr(self, "_ui_resource_dir", Path(__file__).resolve().parent)
+        audio_path = Path(resource_dir) / "1.wav"
+        self._call_overlay_audio_started = False
+        self._call_overlay_audio_click_ready = False
         if not audio_path.exists():
             return
         if winsound is None:
@@ -1974,10 +1773,19 @@ class MicChunkUiApp(tk.Tk):
                 str(audio_path),
                 winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP,
             )
+            self._call_overlay_audio_started = True
+            self._set_customer_call_overlay_buttons_visible(True)
+            try:
+                self.after(350, self._mark_customer_call_overlay_audio_click_ready)
+            except Exception:
+                self._call_overlay_audio_click_ready = True
         except Exception:
-            pass
+            self._call_overlay_audio_started = False
+            self._call_overlay_audio_click_ready = False
 
     def _stop_customer_call_overlay_audio_loop(self) -> None:
+        self._call_overlay_audio_started = False
+        self._call_overlay_audio_click_ready = False
         if winsound is None:
             return
         try:
@@ -1985,15 +1793,45 @@ class MicChunkUiApp(tk.Tk):
         except Exception:
             pass
 
-    def _on_customer_call_overlay_ws_connected(self) -> None:
-        if self._call_overlay_window is None:
+    def _mark_customer_call_overlay_audio_click_ready(self) -> None:
+        if not bool(getattr(self, "_call_overlay_audio_started", False)):
+            self._call_overlay_audio_click_ready = False
             return
-        self._start_customer_call_overlay_audio_loop()
+        if self._call_overlay_window is None:
+            self._call_overlay_audio_click_ready = False
+            return
+        self._call_overlay_audio_click_ready = True
+
+    def _on_customer_call_overlay_ws_connected(self) -> None:
+        self._call_overlay_ws_connected = True
+        # WS 建连成功 → 切换到"呼叫中"阶段并开始放铃声
+        self._call_overlay_phase = "calling"
+        canvas = self._call_overlay_canvas
+        calling_item = self._call_overlay_canvas_calling_item
+        if canvas is not None and calling_item is not None:
+            try:
+                canvas.itemconfig(calling_item, text="呼叫中...", fill="#00ff00")
+            except Exception:
+                pass
+        if not bool(getattr(self, "_call_overlay_audio_started", False)):
+            self._start_customer_call_overlay_audio_loop()
 
     def _on_customer_call_overlay_tts_first_frame(self) -> None:
+        # TTS 首包 → 先显示"通话中..."，再关闭呼叫浮窗、启动计时
+        canvas = self._call_overlay_canvas
+        calling_item = self._call_overlay_canvas_calling_item
+        if canvas is not None and calling_item is not None:
+            try:
+                canvas.itemconfig(calling_item, text="通话中...", fill="#00ff00")
+            except Exception:
+                pass
         self._close_customer_call_overlay()
+        try:
+            self._call_timer_overlay.start()
+        except Exception:
+            pass
 
-    def _close_customer_call_overlay(self) -> None:
+    def _close_customer_call_overlay(self, disconnect: bool = False) -> None:
         if self._call_overlay_status_poll_after_id:
             try:
                 self.after_cancel(self._call_overlay_status_poll_after_id)
@@ -2009,6 +1847,20 @@ class MicChunkUiApp(tk.Tk):
                 pass
         self._call_overlay_calling_anim_id = None
         self._stop_customer_call_overlay_audio_loop()
+        if disconnect:
+            try:
+                self._call_timer_overlay.freeze()
+            except Exception:
+                pass
+        if disconnect and bool(getattr(self._bridge, "running", False)):
+            try:
+                self._bridge.stop()
+            except Exception:
+                pass
+            try:
+                self._set_microphone_open("main", False, reason="call_overlay_closed")
+            except Exception:
+                pass
         win = self._call_overlay_window
         if win is not None:
             try:
@@ -2016,12 +1868,23 @@ class MicChunkUiApp(tk.Tk):
                     win.destroy()
             except Exception:
                 pass
+        # winsound loop stop is best-effort; issue one more stop after window teardown.
+        self._stop_customer_call_overlay_audio_loop()
         self._call_overlay_window = None
         self._call_overlay_canvas = None
         self._call_overlay_canvas_bg_item = None
         self._call_overlay_canvas_calling_item = None
         self._call_overlay_canvas_status_item = None
+        self._call_overlay_accept_button = None
+        self._call_overlay_hangup_button = None
+        self._call_overlay_accept_button_place = None
+        self._call_overlay_hangup_button_place = None
         self._call_overlay_bg_image = None
+        self._call_overlay_audio_started = False
+        self._call_overlay_audio_click_ready = False
+        self._call_overlay_phase = "connecting"
+        self._call_overlay_drag_offset = None
+        self._call_overlay_ws_connected = False
 
     def _schedule_snapshot_autosave(self) -> None:
         if self._snapshot_autosave_after_id:
@@ -2061,6 +1924,7 @@ class MicChunkUiApp(tk.Tk):
             self._flush_send_done_summary(force=True)
             self._flush_log_buffer(force=True)
             self._close_runtime_log_file()
+            self._close_async_log_writer()
         finally:
             if self._flow_tooltip_window:
                 try:
@@ -2088,88 +1952,33 @@ class MicChunkUiApp(tk.Tk):
         return ctrl_pop_next_buffered_event(self)
 
     def _reset_send_done_summary(self) -> None:
-        self._send_done_summary_second = ""
-        self._send_done_summary_count = 0
-        self._send_done_summary_first_chunk = 0
-        self._send_done_summary_last_chunk = 0
-        self._send_done_summary_total_ms = 0
-        self._send_done_summary_max_ms = 0
-        self._send_done_summary_deadline = 0.0
+        ctrl_reset_send_done_summary(self)
 
     def _flush_send_done_summary(self, force: bool = False) -> None:
-        if self._send_done_summary_count <= 0:
-            return
-        if (not force) and time.monotonic() < self._send_done_summary_deadline:
-            return
-
-        avg_ms = self._send_done_summary_total_ms / max(self._send_done_summary_count, 1)
-        if self._send_done_summary_count == 1:
-            line = (
-                f"[{self._send_done_summary_second}] "
-                f"[send] chunk={self._send_done_summary_last_chunk} done in {int(avg_ms)}ms"
-            )
-        else:
-            line = (
-                f"[{self._send_done_summary_second}] [send] "
-                f"chunks={self._send_done_summary_first_chunk}-{self._send_done_summary_last_chunk} "
-                f"count={self._send_done_summary_count} avg={avg_ms:.1f}ms max={self._send_done_summary_max_ms}ms"
-            )
-        self._pending_log_lines.append(line)
-        self._reset_send_done_summary()
+        ctrl_flush_send_done_summary(self, force=force)
 
     def _consume_send_done_log(self, ts_text: str, raw_line: str) -> bool:
-        m = RE_SEND_DONE_LOG.match((raw_line or "").strip())
-        if m is None:
-            # Keep log timeline stable when switching to non-send lines.
-            self._flush_send_done_summary(force=True)
-            return False
-
-        chunk = int(m.group("chunk"))
-        cost_ms = int(m.group("ms"))
-        if self._send_done_summary_count > 0 and ts_text != self._send_done_summary_second:
-            self._flush_send_done_summary(force=True)
-
-        if self._send_done_summary_count <= 0:
-            self._send_done_summary_second = ts_text
-            self._send_done_summary_first_chunk = chunk
-            self._send_done_summary_last_chunk = chunk
-            self._send_done_summary_total_ms = cost_ms
-            self._send_done_summary_max_ms = cost_ms
-            self._send_done_summary_count = 1
-            self._send_done_summary_deadline = time.monotonic() + UI_SEND_DONE_SUMMARY_INTERVAL_SECONDS
-            return True
-
-        self._send_done_summary_last_chunk = chunk
-        self._send_done_summary_total_ms += cost_ms
-        if cost_ms > self._send_done_summary_max_ms:
-            self._send_done_summary_max_ms = cost_ms
-        self._send_done_summary_count += 1
-        return True
+        return ctrl_consume_send_done_log(
+            self,
+            ts_text=ts_text,
+            raw_line=raw_line,
+            send_done_log_re=RE_SEND_DONE_LOG,
+            send_done_summary_interval_seconds=UI_SEND_DONE_SUMMARY_INTERVAL_SECONDS,
+        )
 
     def _buffer_log_line(self, line: str) -> None:
-        if not line:
-            return
-        self._pending_log_lines.append(line)
-        # Guard against long UI pauses if logs spike quickly.
-        if len(self._pending_log_lines) >= 120:
-            self._flush_log_buffer(force=True)
+        ctrl_buffer_log_line(
+            self,
+            line=line,
+            log_flush_interval_seconds=UI_LOG_FLUSH_INTERVAL_SECONDS,
+        )
 
     def _flush_log_buffer(self, force: bool = False) -> None:
-        if not self._pending_log_lines:
-            return
-        now = time.monotonic()
-        if (not force) and (now < self._next_log_flush_at):
-            return
-
-        lines = self._pending_log_lines
-        self._pending_log_lines = []
-        self.log_text.configure(state="normal")
-        self.log_text.insert("end", "\n".join(lines) + "\n")
-        self._trim_scrolled_text(self.log_text, max_lines=800)
-        self.log_text.configure(state="disabled")
-        self.log_text.see("end")
-        self._write_runtime_log_lines(lines)
-        self._next_log_flush_at = now + UI_LOG_FLUSH_INTERVAL_SECONDS
+        ctrl_flush_log_buffer(
+            self,
+            force=force,
+            log_flush_interval_seconds=UI_LOG_FLUSH_INTERVAL_SECONDS,
+        )
 
     def _poll_events(self) -> None:
         ctrl_poll_events(
@@ -2222,79 +2031,25 @@ class MicChunkUiApp(tk.Tk):
         self.after_idle(lambda: self._sync_conversation_server_env_from_command(self.conversation_command_var.get().strip()))
 
     def _apply_server_env_to_command(self) -> None:
-        self._apply_server_env_to_command_vars(self.command_var, self.server_env_var)
+        ctrl_apply_server_env_to_command(self)
 
     def _apply_server_env_to_conversation_command(self) -> None:
-        self._apply_server_env_to_command_vars(self.conversation_command_var, self.conversation_server_env_var)
+        ctrl_apply_server_env_to_conversation_command(self)
 
     def _apply_server_env_to_command_vars(self, command_var: tk.StringVar, env_var: tk.StringVar) -> None:
-        env = (env_var.get() or "local").strip().lower()
-        if env not in {"local", "public"}:
-            env = "local"
-            env_var.set(env)
-
-        command = (command_var.get() or "").strip()
-        tokens = self._safe_split(command)
-        if not tokens:
-            return
-
-        rebuilt: list[str] = []
-        i = 0
-        while i < len(tokens):
-            token = tokens[i]
-            if token in {"--server-env", "--base-url"}:
-                i += 2 if i + 1 < len(tokens) else 1
-                continue
-            rebuilt.append(token)
-            i += 1
-
-        rebuilt.extend(["--server-env", env])
-        new_command = self._safe_join(rebuilt)
-        if new_command != command:
-            command_var.set(new_command)
+        ctrl_apply_server_env_to_command_vars(self, command_var, env_var)
 
     def _sync_server_env_from_command(self, command: str) -> None:
-        self._sync_server_env_from_command_to_var(command, self.server_env_var)
+        ctrl_sync_server_env_from_command(self, command)
 
     def _sync_conversation_server_env_from_command(self, command: str) -> None:
-        self._sync_server_env_from_command_to_var(command, self.conversation_server_env_var)
+        ctrl_sync_conversation_server_env_from_command(self, command)
 
     def _sync_server_env_from_command_to_var(self, command: str, env_var: tk.StringVar) -> None:
-        tokens = self._safe_split(command)
-        if not tokens:
-            return
-        env = ""
-        if "--server-env" in tokens:
-            idx = tokens.index("--server-env")
-            if idx + 1 < len(tokens):
-                env = str(tokens[idx + 1]).strip().lower()
-        if not env and "--base-url" in tokens:
-            idx = tokens.index("--base-url")
-            if idx + 1 < len(tokens):
-                base_url = str(tokens[idx + 1]).strip().lower()
-                if base_url and ("127.0.0.1" not in base_url) and ("localhost" not in base_url):
-                    env = "public"
-                elif base_url:
-                    env = "local"
-        if env in {"local", "public"} and env != env_var.get():
-            env_var.set(env)
+        ctrl_sync_server_env_from_command_to_var(self, command, env_var)
 
     def _toggle_asr(self) -> None:
-        enabled = not bool(self.asr_enabled_var.get())
-        self.asr_enabled_var.set(enabled)
-        self.asr_toggle_text_var.set("关闭ASR识别" if enabled else "开启ASR识别")
-        if enabled:
-            self._log_asr_monitor("switch_on")
-            self._start_settings_asr()
-        else:
-            self._log_asr_monitor("switch_off")
-            self._reset_asr_wait()
-            self._stop_settings_asr()
-            self._set_microphone_open("settings", False, reason="asr_switch_off")
-            if self._bridge.running and self._main_mic_open:
-                self._log_asr_monitor("switch_off stopping main process to close microphone")
-                self._stop()
-        self._refresh_system_instruction()
+        ctrl_toggle_asr(self)
 
     def _clear_customer_profile_text(self) -> None:
         return
@@ -2320,437 +2075,84 @@ class MicChunkUiApp(tk.Tk):
         return
 
     def _toggle_flow_script_panel(self) -> None:
-        panes = self.flow_panes
-        flow_box = self.flow_json_box
-        if not panes or not flow_box:
-            return
-        pane_ids = set(panes.panes())
-        flow_box_id = str(flow_box)
-        show_script = bool(self.flow_show_script_var.get())
-        if show_script:
-            if flow_box_id not in pane_ids:
-                panes.add(flow_box, weight=2)
-            return
-        if flow_box_id in pane_ids:
-            panes.forget(flow_box)
+        ctrl_toggle_flow_script_panel(self)
 
     def _flow_monitor_zoom_in(self) -> None:
-        canvas = self.flow_monitor_canvas
-        if canvas:
-            canvas.zoom_in()
-            self._apply_flow_monitor_active_node_style()
+        ctrl_flow_monitor_zoom_in(self)
 
     def _flow_monitor_zoom_out(self) -> None:
-        canvas = self.flow_monitor_canvas
-        if canvas:
-            canvas.zoom_out()
-            self._apply_flow_monitor_active_node_style()
+        ctrl_flow_monitor_zoom_out(self)
 
     def _flow_monitor_zoom_reset(self) -> None:
-        canvas = self.flow_monitor_canvas
-        if canvas:
-            canvas.reset_zoom()
-            self._apply_flow_monitor_active_node_style()
+        ctrl_flow_monitor_zoom_reset(self)
 
     def _apply_flow_monitor_active_node_style(self) -> None:
-        canvas = self.flow_monitor_canvas
-        active_node_id = str(self._flow_active_node_id or "").strip()
-        if (not canvas) or (not active_node_id):
-            return
-        node = canvas.nodes.get(active_node_id)
-        if not node or not node.shape_item_id:
-            return
-        canvas.itemconfigure(
-            node.shape_item_id,
-            outline="#dc2626",
-            width=max(canvas.selected_line_width, canvas.base_line_width + 1),
-        )
+        ctrl_apply_flow_monitor_active_node_style(self)
 
     def _lock_flow_monitor_interactions(self) -> None:
-        if not self.flow_monitor_canvas:
-            return
-        for sequence in (
-            "<ButtonPress-1>",
-            "<B1-Motion>",
-            "<ButtonRelease-1>",
-            "<Double-Button-1>",
-            "<Delete>",
-            "<BackSpace>",
-        ):
-            self.flow_monitor_canvas.bind(sequence, lambda _event: "break")
+        ctrl_lock_flow_monitor_interactions(self)
 
     def _bind_flow_monitor_hover_events(self) -> None:
-        if not self.flow_monitor_canvas:
-            return
-        self.flow_monitor_canvas.bind("<Motion>", self._on_flow_monitor_motion, add="+")
-        self.flow_monitor_canvas.bind("<Leave>", self._on_flow_monitor_leave, add="+")
+        ctrl_bind_flow_monitor_hover_events(self)
 
     def _restore_flow_monitor_highlight(self) -> None:
-        canvas = self.flow_monitor_canvas
-        active_node_id = str(self._flow_active_node_id or "").strip()
-        if not canvas or not active_node_id:
-            return
-        if active_node_id not in canvas.nodes:
-            return
-        if canvas.selected_node_id == active_node_id and canvas.selected_edge_id is None:
-            self._apply_flow_monitor_active_node_style()
-            return
-        canvas.selected_node_id = active_node_id
-        canvas.selected_edge_id = None
-        if hasattr(canvas, "_sync_selection_styles"):
-            canvas._sync_selection_styles()  # type: ignore[attr-defined]
-        self._apply_flow_monitor_active_node_style()
+        ctrl_restore_flow_monitor_highlight(self)
 
     def _flow_monitor_node_id_at(self, canvas_x: float, canvas_y: float) -> str:
-        canvas = self.flow_monitor_canvas
-        if not canvas:
-            return ""
-        item_ids = canvas.find_overlapping(canvas_x - 1, canvas_y - 1, canvas_x + 1, canvas_y + 1)
-        for item_id in reversed(item_ids):
-            node_id = canvas.item_to_node.get(item_id)
-            if node_id:
-                return str(node_id)
-        return ""
+        return ctrl_flow_monitor_node_id_at(self, canvas_x, canvas_y)
 
     def _show_flow_tooltip(self, text: str, screen_x: int, screen_y: int) -> None:
-        content = str(text or "").strip() or "(无 task_notes)"
-        if not self._flow_tooltip_window:
-            tip = tk.Toplevel(self)
-            tip.withdraw()
-            tip.overrideredirect(True)
-            tip.attributes("-topmost", True)
-            label = tk.Label(
-                tip,
-                text=content,
-                justify="left",
-                anchor="nw",
-                bg="#0f172a",
-                fg="#f8fafc",
-                relief="solid",
-                borderwidth=1,
-                padx=8,
-                pady=6,
-                wraplength=380,
-            )
-            label.pack(fill="both", expand=True)
-            self._flow_tooltip_window = tip
-            self._flow_tooltip_label = label
-        if self._flow_tooltip_label:
-            self._flow_tooltip_label.configure(text=content)
-        if self._flow_tooltip_window:
-            self._flow_tooltip_window.geometry(f"+{int(screen_x)}+{int(screen_y)}")
-            self._flow_tooltip_window.deiconify()
+        ctrl_show_flow_tooltip(self, text, screen_x, screen_y)
 
     def _hide_flow_tooltip(self) -> None:
-        if self._flow_tooltip_window:
-            self._flow_tooltip_window.withdraw()
-        self._flow_hover_node_id = ""
+        ctrl_hide_flow_tooltip(self)
 
     def _on_flow_monitor_leave(self, _event: tk.Event) -> None:
-        self._hide_flow_tooltip()
-        self._restore_flow_monitor_highlight()
+        ctrl_on_flow_monitor_leave(self, _event)
 
     def _on_flow_monitor_motion(self, event: tk.Event) -> None:
-        canvas = self.flow_monitor_canvas
-        if not canvas:
-            return
-        canvas_x = canvas.canvasx(event.x)
-        canvas_y = canvas.canvasy(event.y)
-        hover_node_id = self._flow_monitor_node_id_at(canvas_x, canvas_y)
-        if not hover_node_id:
-            self._hide_flow_tooltip()
-            self._restore_flow_monitor_highlight()
-            return
-        node = canvas.nodes.get(hover_node_id)
-        if node is None:
-            self._hide_flow_tooltip()
-            self._restore_flow_monitor_highlight()
-            return
-        self._flow_hover_node_id = hover_node_id
-        self._show_flow_tooltip(
-            text=f"节点ID: {hover_node_id}\n\n{str(node.task_notes or '').strip() or '(无 task_notes)'}",
-            screen_x=event.x_root + 14,
-            screen_y=event.y_root + 14,
-        )
-        self._restore_flow_monitor_highlight()
+        ctrl_on_flow_monitor_motion(self, event)
 
     @staticmethod
     def _to_float(value: object, fallback: float) -> float:
-        try:
-            return float(value)
-        except Exception:
-            return fallback
+        return ctrl_to_float(value, fallback)
 
     @staticmethod
     def _coerce_node_type(value: object) -> str:
-        raw = str(value or "").strip().lower()
-        valid_types = {item.value for item in NodeType}
-        if raw in valid_types:
-            return raw
-        return NodeType.PROCESS.value
+        return ctrl_coerce_node_type(value)
 
     def _build_flow_graph_models(
         self,
         payload: dict[str, object],
     ) -> tuple[list[FlowNode], list[FlowEdge], dict[str, object], dict[str, object]]:
-        raw_nodes = payload.get("nodes")
-        raw_edges = payload.get("edges")
-        if not isinstance(raw_nodes, list) or not isinstance(raw_edges, list):
-            raise ValueError("workflow file must contain nodes(list) and edges(list)")
-
-        nodes: list[FlowNode] = []
-        node_ids: set[str] = set()
-        for idx, item in enumerate(raw_nodes):
-            if not isinstance(item, dict):
-                continue
-            node_id = str(item.get("id") or "").strip()
-            if (not node_id) or (node_id in node_ids):
-                continue
-            node_type = self._coerce_node_type(item.get("type"))
-            fallback_x = 160.0 + float((idx % 4) * 220)
-            fallback_y = 120.0 + float((idx // 4) * 150)
-            node_payload = {
-                "id": node_id,
-                "type": node_type,
-                "x": self._to_float(item.get("x"), fallback_x),
-                "y": self._to_float(item.get("y"), fallback_y),
-                "width": self._to_float(item.get("width"), 140.0),
-                "height": self._to_float(item.get("height"), 84.0),
-                "text": str(item.get("text") or "").strip() or node_id,
-                "task_notes": str(item.get("task_notes") or ""),
-            }
-            try:
-                node = FlowNode.from_dict(node_payload)
-            except Exception:
-                continue
-            nodes.append(node)
-            node_ids.add(node_id)
-
-        if not nodes:
-            raise ValueError("流程文件缺少有效节点。")
-
-        edges: list[FlowEdge] = []
-        edge_ids: set[str] = set()
-        for idx, item in enumerate(raw_edges):
-            if not isinstance(item, dict):
-                continue
-            source_id = str(item.get("source_id") or "").strip()
-            target_id = str(item.get("target_id") or "").strip()
-            if (source_id not in node_ids) or (target_id not in node_ids):
-                continue
-            base_edge_id = str(item.get("id") or "").strip() or f"edge_{idx + 1}"
-            edge_id = base_edge_id
-            duplicate_idx = 1
-            while edge_id in edge_ids:
-                duplicate_idx += 1
-                edge_id = f"{base_edge_id}_{duplicate_idx}"
-            edge_payload = {
-                "id": edge_id,
-                "source_id": source_id,
-                "target_id": target_id,
-                "text": str(item.get("text") or ""),
-                "route_points": item.get("route_points", []),
-                "source_anchor": item.get("source_anchor"),
-                "target_anchor": item.get("target_anchor"),
-            }
-            try:
-                edge = FlowEdge.from_dict(edge_payload)
-            except Exception:
-                continue
-            edges.append(edge)
-            edge_ids.add(edge_id)
-
-        raw_display = payload.get("display_settings")
-        raw_view = payload.get("view_state")
-        display_settings = raw_display if isinstance(raw_display, dict) else {}
-        view_state = raw_view if isinstance(raw_view, dict) else {}
-        return nodes, edges, display_settings, view_state
+        return ctrl_build_flow_graph_models(payload)
 
     def _render_flow_monitor_graph(self, payload: dict[str, object]) -> None:
-        if not self.flow_monitor_canvas:
-            return
-        self._hide_flow_tooltip()
-        nodes, edges, display_settings, view_state = self._build_flow_graph_models(payload)
-        self.flow_monitor_canvas.load_data(nodes, edges)
-        if display_settings:
-            line_thickness = max(1.0, self._to_float(display_settings.get("line_thickness"), 2.0))
-            font_family = UI_FONT_FAMILY
-            font_size = UI_FONT_SIZE
-            node_text_color = str(display_settings.get("node_text_color") or "#111827").strip() or "#111827"
-            edge_text_color = str(display_settings.get("edge_text_color") or "#374151").strip() or "#374151"
-            self.flow_monitor_canvas.apply_display_settings(
-                line_thickness=line_thickness,
-                font_family=font_family,
-                font_size=font_size,
-                node_text_color=node_text_color,
-                edge_text_color=edge_text_color,
-            )
-        if view_state:
-            self.flow_monitor_canvas.apply_view_state(view_state)
-        self.flow_monitor_canvas.selected_node_id = None
-        self.flow_monitor_canvas.selected_edge_id = None
-        if hasattr(self.flow_monitor_canvas, "_sync_selection_styles"):
-            self.flow_monitor_canvas._sync_selection_styles()  # type: ignore[attr-defined]
-        self._flow_active_node_id = ""
+        ctrl_render_flow_monitor_graph(self, payload)
 
     def _center_flow_monitor_node(self, node_id: str) -> None:
-        canvas = self.flow_monitor_canvas
-        if not canvas:
-            return
-        node = canvas.nodes.get(node_id)
-        if node is None:
-            return
-        canvas.update_idletasks()
-        region_text = str(canvas.cget("scrollregion") or "").strip()
-        if not region_text:
-            return
-        parts = region_text.split()
-        if len(parts) != 4:
-            return
-        try:
-            left, top, right, bottom = [float(item) for item in parts]
-        except Exception:
-            return
-        total_width = max(1.0, right - left)
-        total_height = max(1.0, bottom - top)
-        view_width = max(1.0, float(canvas.winfo_width()))
-        view_height = max(1.0, float(canvas.winfo_height()))
-        max_x = max(1.0, total_width - view_width)
-        max_y = max(1.0, total_height - view_height)
-        x_target = max(0.0, min(max_x, (node.x - left) - view_width / 2.0))
-        y_target = max(0.0, min(max_y, (node.y - top) - view_height / 2.0))
-        canvas.xview_moveto(x_target / max_x if max_x > 0 else 0.0)
-        canvas.yview_moveto(y_target / max_y if max_y > 0 else 0.0)
+        ctrl_center_flow_monitor_node(self, node_id)
 
     def _highlight_flow_monitor_node(self, node_id: str, *, center: bool = True) -> bool:
-        canvas = self.flow_monitor_canvas
-        if not canvas:
-            return False
-        target_id = str(node_id or "").strip()
-        if (not target_id) or (target_id not in canvas.nodes):
-            return False
-        canvas.selected_node_id = target_id
-        canvas.selected_edge_id = None
-        if hasattr(canvas, "_sync_selection_styles"):
-            canvas._sync_selection_styles()  # type: ignore[attr-defined]
-        if center:
-            self._center_flow_monitor_node(target_id)
-        self._flow_active_node_id = target_id
-        self._apply_flow_monitor_active_node_style()
-        return True
+        return ctrl_highlight_flow_monitor_node(self, node_id, center=center)
 
     def _handle_workflow_progress_event(self, payload: dict[str, object], ts_text: str) -> None:
-        trigger = self._sanitize_inline_text(str(payload.get("trigger", ""))) or "-"
-        reason = self._sanitize_inline_text(str(payload.get("reason", "")))
-        from_node_id = self._sanitize_inline_text(str(payload.get("from_node_id", "")))
-        jump_node_id = self._sanitize_inline_text(str(payload.get("jump_node_id", "")))
-        cursor_node_id = self._sanitize_inline_text(str(payload.get("cursor_node_id", "")))
-        route_node_id = self._sanitize_inline_text(str(payload.get("route_node_id", "")))
-        content_node_id = self._sanitize_inline_text(str(payload.get("content_node_id", "")))
-        matched_label = self._sanitize_inline_text(str(payload.get("matched_label", "")))
-        intents_value = payload.get("intents", [])
-        intents = [self._sanitize_inline_text(str(item)) for item in intents_value if str(item).strip()] if isinstance(intents_value, list) else []
-        advanced = bool(payload.get("advanced", False))
-
-        highlighted = False
-        for candidate in (jump_node_id, content_node_id, cursor_node_id, route_node_id):
-            if self._highlight_flow_monitor_node(candidate):
-                highlighted = True
-                break
-
-        active_node = self._flow_active_node_id or content_node_id or cursor_node_id or route_node_id or "-"
-        summary_parts = [
-            f"当前节点={active_node}",
-            f"trigger={trigger}",
-            f"advanced={advanced}",
-        ]
-        if from_node_id:
-            summary_parts.append(f"from={from_node_id}")
-        if jump_node_id:
-            summary_parts.append(f"jump={jump_node_id}")
-        if matched_label:
-            summary_parts.append(f"label={matched_label}")
-        if intents:
-            summary_parts.append(f"intents={','.join(intents)}")
-        if reason:
-            summary_parts.append(f"reason={reason}")
-        if not highlighted and self.flow_monitor_canvas and self.flow_monitor_canvas.nodes:
-            summary_parts.append("warning=目标节点未在图中找到")
-        self.flow_summary_var.set(" | ".join(summary_parts))
-        self._append_line(
-            self.log_text,
-            f"[{ts_text}] [FLOW_TRACK] {' | '.join(summary_parts)}",
-        )
+        ctrl_handle_workflow_progress_event(self, payload, ts_text)
 
     def _load_workflow_json_file(self) -> None:
-        path = filedialog.askopenfilename(
-            title="选择流程文件",
-            filetypes=[("JSON", "*.json"), ("All files", "*.*")],
-        )
-        if not path:
-            return
-        try:
-            raw = Path(path).read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            raw = Path(path).read_text(encoding="utf-8-sig")
-        except Exception as exc:
-            messagebox.showerror("读取失败", str(exc))
-            return
-        try:
-            payload = json.loads(raw)
-        except Exception as exc:
-            messagebox.showerror("JSON无效", f"文件不是有效JSON：{exc}")
-            return
-        if not isinstance(payload, dict):
-            messagebox.showerror("结构无效", "流程文件根节点必须是 JSON 对象。")
-            return
-        try:
-            self._render_flow_monitor_graph(payload)
-        except Exception as exc:
-            messagebox.showerror("结构无效", str(exc))
-            return
-        nodes = payload.get("nodes")
-        edges = payload.get("edges")
-        nodes_count = len(nodes) if isinstance(nodes, list) else 0
-        edges_count = len(edges) if isinstance(edges, list) else 0
-        pretty = json.dumps(payload, ensure_ascii=False, indent=2)
-        self._loaded_workflow_payload = payload
-        self._loaded_workflow_json_text = pretty
-        self._loaded_workflow_json_path = str(Path(path))
-        self._loaded_workflow_json_nodes = nodes_count
-        self._loaded_workflow_json_edges = edges_count
-        self._flow_active_node_id = ""
-        self.flow_path_var.set(self._loaded_workflow_json_path)
-        self.flow_summary_var.set(f"已加载流程图，nodes={nodes_count} edges={edges_count}，等待执行信号。")
-        self._set_text_content(self.flow_json_text, pretty)
-        ts_text = datetime.now().strftime("%H:%M:%S")
-        self._append_line(
-            self.log_text,
-            f"[{ts_text}] [FLOW] loaded path={self._loaded_workflow_json_path} nodes={nodes_count} edges={edges_count}",
-        )
+        ctrl_load_workflow_json_file(self)
 
     def _clear_loaded_workflow_json(self) -> None:
-        self._loaded_workflow_json_text = ""
-        self._loaded_workflow_json_path = ""
-        self._loaded_workflow_json_nodes = 0
-        self._loaded_workflow_json_edges = 0
-        self._loaded_workflow_payload = None
-        self._flow_active_node_id = ""
-        self._hide_flow_tooltip()
-        self.flow_path_var.set("未加载")
-        self.flow_summary_var.set("未加载流程文件")
-        self._set_text_content(self.flow_json_text, "未加载流程文件。点击“加载流程文件”选择 workflow_json。")
-        if self.flow_monitor_canvas:
-            self.flow_monitor_canvas.clear()
+        ctrl_clear_loaded_workflow_json(self)
 
     def _clear_intent_page_views(self) -> None:
         return
 
     def _submit_customer_profile_from_panel(self) -> None:
-        messagebox.showinfo("功能已移除", "设置页“客户画像”子窗口及相关功能已移除。")
+        ctrl_submit_customer_profile_from_panel_removed(self)
 
     def _submit_workflow_from_panel(self) -> None:
-        messagebox.showinfo("功能已移除", "设置页“工作流程”子窗口及相关功能已移除。")
+        ctrl_submit_workflow_from_panel_removed(self)
 
     def _open_conversation_customer_profile_dialog(self) -> None:
         self._open_conversation_customer_profile_generator_dialog()
@@ -2762,145 +2164,25 @@ class MicChunkUiApp(tk.Tk):
         return ctrl_get_conversation_strategy_history_for_tab(self, tab_id)
 
     def _render_conversation_strategy_dialog_history(self, dialog: dict[str, object]) -> None:
-        history_widget = dialog.get("history_text")
-        if not isinstance(history_widget, ScrolledText):
-            return
-        tab_id = str(dialog.get("tab_id", "") or "")
-        history = self._get_conversation_strategy_history_for_tab(tab_id)
-        try:
-            history_widget.configure(state="normal")
-            history_widget.delete("1.0", "end")
-        except Exception:
-            return
-        dialog["_cp_bubble_refs"] = []
-        dialog.pop("_cp_active_left_bubble", None)
-        if not history:
-            try:
-                history_widget.insert("end", "暂无历史记录\n", ("cs_hint",))
-            except Exception:
-                return
-            history_widget.see("end")
-            return
-        for item in history:
-            instruction = str(item.get("instruction", "") or "-")
-            response = str(item.get("response", "") or "-")
-            self._insert_customer_profile_bubble_row(
-                history_widget,
-                header="",
-                body=instruction,
-                is_right=True,
-                keep_active=False,
-            )
-            self._insert_customer_profile_bubble_row(
-                history_widget,
-                header="",
-                body=response,
-                is_right=False,
-                keep_active=False,
-            )
+        ctrl_render_conversation_strategy_dialog_history(self, dialog)
 
     def _append_text_to_widget_with_tag(self, widget: ScrolledText, text: str, tag: str) -> None:
-        if (not text) or (not isinstance(widget, ScrolledText)):
-            return
-        if self._try_append_customer_profile_bubble(widget, text, tag):
-            return
-        try:
-            widget.configure(state="normal")
-            widget.insert("end", text, (tag,))
-            widget.see("end")
-        except Exception:
-            return
+        ctrl_append_text_to_widget_with_tag(self, widget, text, tag)
 
     def _try_append_customer_profile_bubble(self, widget: ScrolledText, text: str, tag: str) -> bool:
-        dialog = None
-        for _attr in ("_conversation_customer_profile_dialog", "_conversation_intent_dialog", "_conversation_strategy_dialog"):
-            _d = getattr(self, _attr, None)
-            if isinstance(_d, dict) and _d.get("output") is widget:
-                dialog = _d
-                break
-        if not isinstance(dialog, dict):
-            return False
-        if tag not in {"cs_right_bubble", "cs_left_bubble"}:
-            return False
-        clean_text = str(text or "").replace("\r", "")
-        if not clean_text:
-            return True
-
-        # When history is re-rendered via delete("1.0", "end"), reset bubble refs.
-        try:
-            is_empty = str(widget.index("end-1c")) == "1.0"
-        except Exception:
-            is_empty = False
-        if is_empty:
-            dialog["_cp_bubble_refs"] = []
-            dialog.pop("_cp_active_left_bubble", None)
-
-        lines = clean_text.split("\n")
-        header = lines[0].strip() if lines else ""
-        body = "\n".join(lines[1:]).strip("\n")
-        is_right = tag == "cs_right_bubble"
-
-        # New LLM bubble header line: start a live/empty bubble.
-        if (not is_right) and self._is_llm_header_line(header) and (not body.strip()):
-            self._insert_customer_profile_bubble_row(widget, header=header, body="", is_right=False, keep_active=True)
-            return True
-
-        # Stream chunks or thinking text: append to the current active left bubble.
-        if (not is_right):
-            active = dialog.get("_cp_active_left_bubble")
-            if isinstance(active, dict) and (not self._is_instruction_header_line(header)) and (not self._is_llm_header_line(header)):
-                self._append_customer_profile_bubble_text(widget, active, clean_text)
-                return True
-
-        # Full block render (history or immediate instruction/response).
-        if self._is_instruction_header_line(header) or self._is_llm_header_line(header):
-            self._insert_customer_profile_bubble_row(
-                widget,
-                header=header,
-                body=body,
-                is_right=is_right,
-                keep_active=(not is_right),
-            )
-            return True
-
-        # Fallback: still render as a bubble, preserving alignment.
-        self._insert_customer_profile_bubble_row(
-            widget,
-            header="",
-            body=clean_text.strip("\n"),
-            is_right=is_right,
-            keep_active=(not is_right),
-        )
-        return True
+        return ctrl_try_append_customer_profile_bubble(self, widget, text, tag)
 
     @staticmethod
     def _is_instruction_header_line(text: str) -> bool:
-        t = str(text or "").strip()
-        return t.startswith("指令 ") or t.startswith("鎸囦护 ")
+        return ctrl_is_instruction_header_line(text)
 
     @staticmethod
     def _is_llm_header_line(text: str) -> bool:
-        t = str(text or "").strip()
-        return t.startswith("LLM返回 ") or t.startswith("LLM杩斿洖 ")
+        return ctrl_is_llm_header_line(text)
 
     @staticmethod
     def _draw_rounded_rect(canvas: tk.Canvas, x1: int, y1: int, x2: int, y2: int, radius: int, **kwargs) -> int:
-        r = max(4, int(radius))
-        points = [
-            x1 + r, y1,
-            x2 - r, y1,
-            x2, y1,
-            x2, y1 + r,
-            x2, y2 - r,
-            x2, y2,
-            x2 - r, y2,
-            x1 + r, y2,
-            x1, y2,
-            x1, y2 - r,
-            x1, y1 + r,
-            x1, y1,
-        ]
-        return int(canvas.create_polygon(points, smooth=True, splinesteps=24, **kwargs))
+        return ctrl_draw_rounded_rect(canvas, x1, y1, x2, y2, radius, **kwargs)
 
     def _render_customer_profile_bubble_canvas(
         self,
@@ -2910,48 +2192,7 @@ class MicChunkUiApp(tk.Tk):
         body: str,
         is_right: bool,
     ) -> int:
-        _ww = widget.winfo_width()
-        try:
-            _tw = widget.winfo_toplevel().winfo_width()
-            if _tw > 100:
-                _ww = max(_ww, _tw - 60)
-        except Exception:
-            pass
-        if _ww < 200:
-            _ww = 900
-        width = max(_ww, 200)
-        max_bubble_width = max(240, int((width - 20) * 0.68))
-        text_limit = max(180, max_bubble_width - 28)
-        wrapped_body = self._wrap_text_for_strategy_history_bubble(
-            text=body,
-            history_widget=widget,
-            max_width_px=text_limit,
-        ).strip("\n")
-        content = "\n".join(x for x in [header, wrapped_body] if x) if (header or wrapped_body) else ""
-        try:
-            font = tkfont.nametofont(str(widget.cget("font")))
-        except Exception:
-            font = tkfont.nametofont("TkDefaultFont")
-        line_h = int(font.metrics("linespace") or 18)
-        widest = 0
-        for line in content.split("\n"):
-            widest = max(widest, int(font.measure(line)))
-        bubble_w = min(max_bubble_width, max(190, widest + 26))
-        text_w = max(60, bubble_w - 26)
-        fill = "#e9eef3" if is_right else str(widget.cget("bg"))
-        edge = "#c7d0db" if is_right else ""
-        # Measure actual rendered height via a temporary text item.
-        canvas.configure(width=bubble_w + 2, height=1, bg=str(widget.cget("bg")), bd=0, highlightthickness=0)
-        canvas.delete("all")
-        _tmp = canvas.create_text(14, 12, anchor="nw", text=content, font=font, width=text_w)
-        _bbox = canvas.bbox(_tmp)
-        canvas.delete(_tmp)
-        bubble_h = max(40, (_bbox[3] + 12) if _bbox else int(len(content.split("\n")) * line_h + 24))
-        canvas.configure(width=bubble_w + 2, height=bubble_h + 2, bd=0, highlightthickness=0)
-        canvas.delete("all")
-        self._draw_rounded_rect(canvas, 1, 1, bubble_w, bubble_h, 12, fill=fill, outline=edge, width=1)
-        canvas.create_text(14, 12, anchor="nw", text=content, fill="#1f2937", font=font, width=text_w)
-        return bubble_h + 6
+        return ctrl_render_customer_profile_bubble_canvas(self, widget, canvas, header, body, is_right)
 
     def _insert_customer_profile_bubble_row(
         self,
@@ -2962,69 +2203,17 @@ class MicChunkUiApp(tk.Tk):
         is_right: bool,
         keep_active: bool,
     ) -> None:
-        dialog = None
-        for _attr in ("_conversation_customer_profile_dialog", "_conversation_intent_dialog", "_conversation_strategy_dialog"):
-            _d = getattr(self, _attr, None)
-            if isinstance(_d, dict) and (_d.get("output") is widget or _d.get("history_text") is widget):
-                dialog = _d
-                break
-        if not isinstance(dialog, dict):
-            return
-        bg = str(widget.cget("bg"))
-        _ww = widget.winfo_width()
-        try:
-            _tw = widget.winfo_toplevel().winfo_width()
-            if _tw > 100:
-                _ww = max(_ww, _tw - 60)
-        except Exception:
-            pass
-        if _ww < 200:
-            _ww = 900
-        width = max(_ww, 200)
-        row = tk.Frame(widget, bg=bg, width=max(320, width - 20), height=1, bd=0, highlightthickness=0)
-        row.pack_propagate(False)
-        canvas = tk.Canvas(row, bd=0, highlightthickness=0, bg=bg)
-        canvas.pack(anchor=("e" if is_right else "w"), padx=((0, 8) if is_right else (8, 0)), pady=(2, 2))
-        row.configure(height=self._render_customer_profile_bubble_canvas(widget, canvas, header, body, is_right))
-
-        def _scroll(event: tk.Event, _w: ScrolledText = widget) -> None:
-            _w.yview_scroll(int(-1 * (event.delta / 120)), "units")
-
-        row.bind("<MouseWheel>", _scroll)
-        canvas.bind("<MouseWheel>", _scroll)
-
-        widget.window_create("end", window=row)
-        widget.insert("end", "\n")
-        refs = dialog.setdefault("_cp_bubble_refs", [])
-        if isinstance(refs, list):
-            refs.append((row, canvas))
-        if keep_active:
-            dialog["_cp_active_left_bubble"] = {
-                "row": row,
-                "canvas": canvas,
-                "header": str(header or ""),
-                "text": str(body or ""),
-                "is_right": bool(is_right),
-            }
-        widget.see("end")
+        ctrl_insert_customer_profile_bubble_row(
+            self,
+            widget,
+            header=header,
+            body=body,
+            is_right=is_right,
+            keep_active=keep_active,
+        )
 
     def _append_customer_profile_bubble_text(self, widget: ScrolledText, active: dict[str, object], chunk: str) -> None:
-        row = active.get("row")
-        canvas = active.get("canvas")
-        if (not isinstance(row, tk.Frame)) or (not isinstance(canvas, tk.Canvas)):
-            return
-        current = str(active.get("text", "") or "") + str(chunk or "")
-        active["text"] = current
-        row.configure(
-            height=self._render_customer_profile_bubble_canvas(
-                widget,
-                canvas,
-                header=str(active.get("header", "")),
-                body=current,
-                is_right=bool(active.get("is_right", False)),
-            )
-        )
-        widget.see("end")
+        ctrl_append_customer_profile_bubble_text(self, widget, active, chunk)
 
     def _prepare_live_conversation_strategy_response_bubble(self, source_widget: ScrolledText) -> None:
         ctrl_prepare_live_conversation_strategy_response_bubble(self, source_widget)
@@ -3041,115 +2230,13 @@ class MicChunkUiApp(tk.Tk):
         history_widget: ScrolledText,
         max_width_px: int,
     ) -> str:
-        raw_text = str(text or "").replace("\r", "")
-        max_px = max(120, int(max_width_px or 0))
-        try:
-            font = tkfont.nametofont(str(history_widget.cget("font")))
-        except Exception:
-            return raw_text
-        wrapped_lines: list[str] = []
-        for paragraph in raw_text.split("\n"):
-            if not paragraph:
-                wrapped_lines.append("")
-                continue
-            current = ""
-            for ch in paragraph:
-                candidate = current + ch
-                if (not current) or (font.measure(candidate) <= max_px):
-                    current = candidate
-                    continue
-                wrapped_lines.append(current)
-                current = ch
-            if current:
-                wrapped_lines.append(current)
-        return "\n".join(wrapped_lines)
+        return ctrl_wrap_text_for_strategy_history_bubble(text, history_widget, max_width_px)
 
     def _update_conversation_strategy_dialog_history_tags(self, history_widget: ScrolledText) -> None:
-        width = int(history_widget.winfo_width() or history_widget.winfo_reqwidth() or 900)
-        side_gap = 14
-        max_bubble_width = max(240, int(width * (2.0 / 3.0)))
-        right_left_margin = max(side_gap, width - max_bubble_width - side_gap)
-        left_right_margin = right_left_margin
-        history_widget.tag_configure(
-            "cs_left",
-            justify="left",
-            lmargin1=side_gap,
-            lmargin2=side_gap,
-            rmargin=left_right_margin,
-            foreground="#6b7280",
-            spacing1=6,
-            spacing3=6,
-        )
-        history_widget.tag_configure(
-            "cs_right",
-            justify="right",
-            lmargin1=right_left_margin,
-            lmargin2=right_left_margin,
-            rmargin=side_gap,
-            foreground="#6b7280",
-            spacing1=6,
-            spacing3=6,
-        )
-        history_widget.tag_configure(
-            "cs_right_bubble",
-            justify="left",
-            lmargin1=right_left_margin,
-            lmargin2=right_left_margin,
-            rmargin=side_gap,
-            foreground="#111827",
-            spacing1=6,
-            spacing3=6,
-        )
-        history_widget.tag_configure(
-            "cs_left_bubble",
-            justify="left",
-            lmargin1=side_gap,
-            lmargin2=side_gap,
-            rmargin=left_right_margin,
-            foreground="#111827",
-            spacing1=6,
-            spacing3=6,
-        )
+        ctrl_update_conversation_strategy_dialog_history_tags(history_widget)
 
     def _update_customer_profile_dialog_history_tags(self, history_widget: ScrolledText) -> None:
-        width = int(history_widget.winfo_width() or history_widget.winfo_reqwidth() or 900)
-        side_gap = 16
-        max_bubble_width = max(240, int(width * (2.0 / 3.0)))
-        right_left_margin = max(side_gap, width - max_bubble_width - side_gap)
-        left_right_margin = right_left_margin
-        history_widget.tag_configure(
-            "cs_right_bubble",
-            justify="left",
-            lmargin1=right_left_margin,
-            lmargin2=right_left_margin,
-            rmargin=side_gap,
-            background="#e9eef3",
-            foreground="#1f2937",
-            borderwidth=1,
-            relief="solid",
-            spacing1=7,
-            spacing3=8,
-        )
-        history_widget.tag_configure(
-            "cs_left_bubble",
-            justify="left",
-            lmargin1=side_gap,
-            lmargin2=side_gap,
-            rmargin=left_right_margin,
-            background="#f4f8ee",
-            foreground="#1f2937",
-            borderwidth=1,
-            relief="solid",
-            spacing1=7,
-            spacing3=8,
-        )
-        history_widget.tag_configure(
-            "cs_hint",
-            justify="center",
-            foreground="#6b7280",
-            spacing1=10,
-            spacing3=10,
-        )
+        ctrl_update_customer_profile_dialog_history_tags(history_widget)
 
     def _append_conversation_strategy_history(
         self,
@@ -3219,69 +2306,16 @@ class MicChunkUiApp(tk.Tk):
         return ctrl_get_conversation_customer_profile_history_for_tab(self, tab_id)
 
     def _render_conversation_customer_profile_dialog_history(self, dialog: dict[str, object]) -> None:
-        history_widget = dialog.get("history_text")
-        if not isinstance(history_widget, ScrolledText):
-            return
-        tab_id = str(dialog.get("tab_id", "") or "")
-        history = self._get_conversation_customer_profile_history_for_tab(tab_id)
-        try:
-            history_widget.configure(state="normal")
-            history_widget.delete("1.0", "end")
-        except Exception:
-            return
-        dialog["_cp_bubble_refs"] = []
-        dialog.pop("_cp_active_left_bubble", None)
-        if not history:
-            try:
-                history_widget.insert("end", "暂无历史记录\n", ("cs_hint",))
-            except Exception:
-                return
-            history_widget.see("end")
-            return
-        for item in history:
-            instruction = str(item.get("instruction", "") or "-")
-            response = str(item.get("response", "") or "-")
-            self._insert_customer_profile_bubble_row(
-                history_widget,
-                header="",
-                body=instruction,
-                is_right=True,
-                keep_active=False,
-            )
-            self._insert_customer_profile_bubble_row(
-                history_widget,
-                header="",
-                body=response,
-                is_right=False,
-                keep_active=False,
-            )
+        ctrl_render_conversation_customer_profile_dialog_history(self, dialog)
 
     def _prepare_live_conversation_customer_profile_response_bubble(self, source_widget: ScrolledText) -> None:
-        dialog = getattr(self, "_conversation_customer_profile_dialog", None)
-        if not isinstance(dialog, dict):
-            return
-        if dialog.get("output") is not source_widget:
-            return
-        if str(dialog.get("live_response_phase", "")) == "content":
-            return
-        start_idx = str(dialog.get("live_response_start", "") or "")
-        if not start_idx:
-            dialog["live_response_phase"] = "content"
-            return
-        try:
-            source_widget.configure(state="normal")
-            source_widget.delete(start_idx, "end-1c")
-        except Exception:
-            return
-        dialog.pop("_cp_active_left_bubble", None)
-        dialog["live_response_phase"] = "content"
+        ctrl_prepare_live_conversation_customer_profile_response_bubble_phase(self, source_widget)
 
     def _append_live_conversation_customer_profile_thinking_chunk(self, source_widget: ScrolledText, chunk: str) -> None:
-        self._append_text_to_widget_with_tag(source_widget, chunk, "cs_left_bubble")
+        ctrl_append_live_conversation_customer_profile_thinking_chunk_phase(self, source_widget, chunk)
 
     def _append_live_conversation_customer_profile_content_chunk(self, source_widget: ScrolledText, chunk: str) -> None:
-        self._prepare_live_conversation_customer_profile_response_bubble(source_widget)
-        self._append_text_to_widget_with_tag(source_widget, chunk, "cs_left_bubble")
+        ctrl_append_live_conversation_customer_profile_content_chunk_phase(self, source_widget, chunk)
 
     def _append_conversation_customer_profile_history(
         self,
@@ -3296,13 +2330,16 @@ class MicChunkUiApp(tk.Tk):
     def _save_conversation_system_instruction_from_panel(self) -> None:
         """保存系统指令的内容，使其立即生效"""
         self._refresh_runtime_system_prompt_only()
+        self._save_persisted_conversation_tab_snapshots(persist_workflow_fields=True)
+        ctrl_set_workflow_doc_dirty(self, False)
         from tkinter import messagebox
         messagebox.showinfo("保存成功", "系统指令已保存并生效")
 
     def _save_conversation_customer_profile_from_panel(self) -> None:
         """保存客户画像内容到快照"""
         try:
-            self._save_persisted_conversation_tab_snapshots()
+            self._save_persisted_conversation_tab_snapshots(persist_workflow_fields=True)
+            ctrl_set_workflow_doc_dirty(self, False)
             from tkinter import messagebox
             messagebox.showinfo("保存成功", "客户画像已保存")
         except Exception as exc:
@@ -3312,7 +2349,8 @@ class MicChunkUiApp(tk.Tk):
     def _save_conversation_intent_from_panel(self) -> None:
         """保存客户意图内容到快照"""
         try:
-            self._save_persisted_conversation_tab_snapshots()
+            self._save_persisted_conversation_tab_snapshots(persist_workflow_fields=True)
+            ctrl_set_workflow_doc_dirty(self, False)
             from tkinter import messagebox
             messagebox.showinfo("保存成功", "客户意图已保存")
         except Exception as exc:
@@ -3322,7 +2360,8 @@ class MicChunkUiApp(tk.Tk):
     def _save_conversation_strategy_from_panel(self) -> None:
         """保存对话策略内容到快照"""
         try:
-            self._save_persisted_conversation_tab_snapshots()
+            self._save_persisted_conversation_tab_snapshots(persist_workflow_fields=True)
+            ctrl_set_workflow_doc_dirty(self, False)
             from tkinter import messagebox
             messagebox.showinfo("保存成功", "对话策略已保存")
         except Exception as exc:
@@ -3332,7 +2371,8 @@ class MicChunkUiApp(tk.Tk):
     def _save_dialog_summary_prompt_from_panel(self) -> None:
         """保存对话总结提示词模板"""
         try:
-            self._save_persisted_conversation_tab_snapshots()
+            self._save_persisted_conversation_tab_snapshots(persist_workflow_fields=True)
+            ctrl_set_workflow_doc_dirty(self, False)
             from tkinter import messagebox
             messagebox.showinfo("保存成功", "对话总结提示词已保存")
         except Exception as exc:
@@ -3342,7 +2382,8 @@ class MicChunkUiApp(tk.Tk):
     def _save_pending_items_prompt_from_panel(self) -> None:
         """保存待核实事项提示词模板"""
         try:
-            self._save_persisted_conversation_tab_snapshots()
+            self._save_persisted_conversation_tab_snapshots(persist_workflow_fields=True)
+            ctrl_set_workflow_doc_dirty(self, False)
             from tkinter import messagebox
             messagebox.showinfo("保存成功", "待核实事项提示词已保存")
         except Exception as exc:
@@ -3352,7 +2393,8 @@ class MicChunkUiApp(tk.Tk):
     def _save_dialog_strategy_prompt_from_panel(self) -> None:
         """保存对话策略提示词模板"""
         try:
-            self._save_persisted_conversation_tab_snapshots()
+            self._save_persisted_conversation_tab_snapshots(persist_workflow_fields=True)
+            ctrl_set_workflow_doc_dirty(self, False)
             from tkinter import messagebox
             messagebox.showinfo("保存成功", "对话策略提示词已保存")
         except Exception as exc:
@@ -3417,69 +2459,16 @@ class MicChunkUiApp(tk.Tk):
         return ctrl_get_conversation_intent_generator_history_for_tab(self, tab_id)
 
     def _render_conversation_intent_dialog_history(self, dialog: dict[str, object]) -> None:
-        history_widget = dialog.get("history_text")
-        if not isinstance(history_widget, ScrolledText):
-            return
-        tab_id = str(dialog.get("tab_id", "") or "")
-        history = self._get_conversation_intent_generator_history_for_tab(tab_id)
-        try:
-            history_widget.configure(state="normal")
-            history_widget.delete("1.0", "end")
-        except Exception:
-            return
-        dialog["_cp_bubble_refs"] = []
-        dialog.pop("_cp_active_left_bubble", None)
-        if not history:
-            try:
-                history_widget.insert("end", "暂无历史记录\n", ("cs_hint",))
-            except Exception:
-                return
-            history_widget.see("end")
-            return
-        for item in history:
-            instruction = str(item.get("instruction", "") or "-")
-            response = str(item.get("response", "") or "-")
-            self._insert_customer_profile_bubble_row(
-                history_widget,
-                header="",
-                body=instruction,
-                is_right=True,
-                keep_active=False,
-            )
-            self._insert_customer_profile_bubble_row(
-                history_widget,
-                header="",
-                body=response,
-                is_right=False,
-                keep_active=False,
-            )
+        ctrl_render_conversation_intent_dialog_history(self, dialog)
 
     def _prepare_live_conversation_intent_response_bubble(self, source_widget: ScrolledText) -> None:
-        dialog = getattr(self, "_conversation_intent_dialog", None)
-        if not isinstance(dialog, dict):
-            return
-        if dialog.get("output") is not source_widget:
-            return
-        if str(dialog.get("live_response_phase", "")) == "content":
-            return
-        start_idx = str(dialog.get("live_response_start", "") or "")
-        if not start_idx:
-            dialog["live_response_phase"] = "content"
-            return
-        try:
-            source_widget.configure(state="normal")
-            source_widget.delete(start_idx, "end-1c")
-        except Exception:
-            return
-        dialog.pop("_cp_active_left_bubble", None)
-        dialog["live_response_phase"] = "content"
+        ctrl_prepare_live_conversation_intent_response_bubble_phase(self, source_widget)
 
     def _append_live_conversation_intent_thinking_chunk(self, source_widget: ScrolledText, chunk: str) -> None:
-        self._append_text_to_widget_with_tag(source_widget, chunk, "cs_left_bubble")
+        ctrl_append_live_conversation_intent_thinking_chunk_phase(self, source_widget, chunk)
 
     def _append_live_conversation_intent_content_chunk(self, source_widget: ScrolledText, chunk: str) -> None:
-        self._prepare_live_conversation_intent_response_bubble(source_widget)
-        self._append_text_to_widget_with_tag(source_widget, chunk, "cs_left_bubble")
+        ctrl_append_live_conversation_intent_content_chunk_phase(self, source_widget, chunk)
 
     def _append_conversation_intent_generator_history(
         self,
@@ -3553,7 +2542,7 @@ class MicChunkUiApp(tk.Tk):
         ctrl_append_intent_system_text(self, text)
 
     def _generate_intents_from_settings(self) -> None:
-        messagebox.showinfo("功能已移除", "意图页面及其相关功能已移除。")
+        ctrl_generate_intents_from_settings_removed(self)
 
     def _generate_intents_from_settings_worker(self, llm_prompt: str) -> None:
         return
@@ -3573,7 +2562,7 @@ class MicChunkUiApp(tk.Tk):
         kind_label: str,
         source_widget: ScrolledText,
     ) -> None:
-        messagebox.showinfo("功能已移除", f"设置页“{kind_label}”相关提交功能已移除。")
+        ctrl_submit_settings_panel_llm_removed(self, kind_label)
 
     def _submit_settings_panel_llm_worker(
         self,
@@ -3597,7 +2586,7 @@ class MicChunkUiApp(tk.Tk):
         return
 
     def _open_customer_profile_dialog(self) -> None:
-        messagebox.showinfo("功能已移除", "设置页“客户画像”编辑功能已移除。")
+        ctrl_open_customer_profile_dialog_removed(self)
 
     def _build_dialog_summary_text(self, focus_hint: str = "") -> str:
         return ctrl_build_dialog_summary_text(self, focus_hint=focus_hint)
@@ -3632,31 +2621,13 @@ class MicChunkUiApp(tk.Tk):
         )
 
     def _get_dialog_summary_prompt_template(self) -> str:
-        widget = self.conversation_summary_prompt_text
-        if isinstance(widget, ScrolledText):
-            try:
-                return widget.get("1.0", "end-1c").strip()
-            except Exception:
-                pass
-        return ""
+        return ctrl_get_dialog_summary_prompt_template(self)
 
     def _get_pending_items_prompt_template(self) -> str:
-        widget = self.conversation_pending_items_prompt_text
-        if isinstance(widget, ScrolledText):
-            try:
-                return widget.get("1.0", "end-1c").strip()
-            except Exception:
-                pass
-        return ""
+        return ctrl_get_pending_items_prompt_template(self)
 
     def _get_dialog_strategy_prompt_template(self) -> str:
-        widget = self.conversation_strategy_prompt_text
-        if isinstance(widget, ScrolledText):
-            try:
-                return widget.get("1.0", "end-1c").strip()
-            except Exception:
-                pass
-        return ""
+        return ctrl_get_dialog_strategy_prompt_template(self)
 
     @staticmethod
     def _extract_pending_commitment_items(summary_text: str) -> list[str]:
@@ -3677,7 +2648,7 @@ class MicChunkUiApp(tk.Tk):
         ctrl_open_dialog_summary_modal(self, ui_font_family=UI_FONT_FAMILY)
 
     def _open_workflow_dialog(self) -> None:
-        messagebox.showinfo("功能已移除", "设置页“工作流程”编辑功能已移除。")
+        ctrl_open_workflow_dialog_removed(self)
 
     def _open_settings_editor_dialog(
         self,
@@ -4043,6 +3014,9 @@ class MicChunkUiApp(tk.Tk):
     def _build_call_record_items(self) -> list[dict[str, str]]:
         return ctrl_build_call_record_items(self)
 
+    def build_visible_customer_records(self, records: list[dict[str, str]]) -> list[dict[str, str]]:
+        return ctrl_build_visible_customer_records(self, records)
+
     def _render_call_record_detail(self, record: dict[str, str]) -> None:
         ctrl_render_call_record_detail(self, record)
 
@@ -4052,8 +3026,8 @@ class MicChunkUiApp(tk.Tk):
     def _apply_call_record_profile_and_workflow(self, record: dict[str, str]) -> None:
         ctrl_apply_call_record_profile_and_workflow(self, record)
 
-    def _load_call_records_into_list(self) -> None:
-        ctrl_load_call_records_into_list(self)
+    def _load_call_records_into_list(self, force_reload: bool = False) -> None:
+        ctrl_load_call_records_into_list(self, force_reload=force_reload)
 
     def _clear_customer_data_profile_table(self, message: str = "请选择左侧通话记录") -> None:
         ctrl_clear_customer_data_profile_table(self, message=message)
@@ -4076,26 +3050,59 @@ class MicChunkUiApp(tk.Tk):
     def _prepare_call_context_from_customer_data_and_workflow_page(self) -> bool:
         return ctrl_prepare_call_context_from_customer_data_and_workflow_page(self, default_workflow="")
 
-    def _load_customer_data_records_into_list(self) -> None:
-        ctrl_load_customer_data_records_into_list(self)
+    def _load_customer_data_records_into_list(self, force_reload: bool = False) -> None:
+        ctrl_load_customer_data_records_into_list(self, force_reload=force_reload)
+
+    def _mark_conversation_tab_data_dirty(
+        self,
+        *,
+        tab_id: str = "",
+        call_records: bool = True,
+        customer_data: bool = True,
+    ) -> None:
+        ctrl_mark_conversation_tab_data_dirty(
+            self,
+            tab_id=tab_id,
+            call_records=call_records,
+            customer_data=customer_data,
+        )
 
     def _on_customer_data_record_selected(self, _event=None) -> None:
         ctrl_on_customer_data_record_selected(self, _event=_event)
 
-    def _on_customer_data_tree_click(self, event=None) -> None:
-        ctrl_on_customer_data_tree_click(self, event=event)
+    def _on_customer_data_tree_click(self, event=None) -> str | None:
+        return ctrl_on_customer_data_tree_click(self, event=event)
 
-    def _on_customer_data_tree_double_click(self, event=None) -> None:
-        ctrl_on_customer_data_tree_double_click(self, event=event)
+    def _on_customer_data_tree_double_click(self, event=None) -> str | None:
+        return ctrl_on_customer_data_tree_double_click(self, event=event)
 
     def _delete_customer_by_name(self, customer_name: str) -> None:
         ctrl_delete_customer_by_name(self, customer_name)
+
+    def _open_customer_data_detail_window(
+        self,
+        customer_name: str,
+        *,
+        context=None,
+        data_dir: Path | None = None,
+        case_data: dict[str, object] | None = None,
+    ) -> None:
+        ctrl_open_customer_data_detail_window(
+            self,
+            customer_name,
+            context=context,
+            data_dir=data_dir,
+            case_data=case_data,
+        )
 
     def _open_call_record_detail_window(self, record: dict[str, str]) -> None:
         ctrl_open_call_record_detail_window(self, record)
 
     def _on_call_record_selected(self, _event=None, apply_profile_and_workflow: bool = True) -> None:
         ctrl_on_call_record_selected(self, _event=_event, apply_profile_and_workflow=apply_profile_and_workflow)
+
+    def _on_call_record_tree_click(self, event=None) -> str | None:
+        return ctrl_on_call_record_tree_click(self, event=event)
 
     def _on_call_record_call(self) -> None:
         ctrl_on_call_record_call(self)
@@ -4110,12 +3117,18 @@ class MicChunkUiApp(tk.Tk):
         empty_message: str = "暂无客户画像数据",
         auto_height: bool = False,
     ) -> None:
+        started_at = time.perf_counter()
         ctrl_fill_profile_table_from_text(
             self,
             tree,
             profile_text,
             empty_message=empty_message,
             auto_height=auto_height,
+        )
+        self._log_ui_blocking_op(
+            "fill_profile_table_from_text",
+            started_at,
+            extra=f"chars={len(profile_text)} auto_height={int(auto_height)}",
         )
 
     def _resize_dialog_profile_columns(self) -> None:
@@ -4157,7 +3170,7 @@ class MicChunkUiApp(tk.Tk):
         tokens = self._safe_split(command)
         if tokens:
             launcher = Path(str(tokens[0]).strip('"')).name.lower()
-            if launcher in {"python", "python.exe", "py", "py.exe"}:
+            if launcher in {"python", "python.exe", "py", "py.exe"} and not bool(getattr(sys, "frozen", False)):
                 current_python = str(sys.executable or "").strip()
                 if current_python:
                     tokens[0] = current_python
@@ -4180,20 +3193,31 @@ class MicChunkUiApp(tk.Tk):
     def _append_line(self, widget: ScrolledText, line: str, max_lines: int = 800) -> None:
         if not isinstance(widget, ScrolledText):
             return
+        started_at = time.perf_counter()
+        if widget is getattr(self, "log_text", None):
+            self._write_time_log_line(line)
+            return
         ctrl_append_line(widget, line, max_lines=max_lines)
         self._write_runtime_log_line(line)
+        self._log_ui_blocking_op("append_line", started_at, extra=f"chars={len(line)}")
 
     def _append_line_with_tag(self, widget: ScrolledText, line: str, tag: str, max_lines: int = 800) -> None:
         if not isinstance(widget, ScrolledText):
             return
+        started_at = time.perf_counter()
+        if widget is getattr(self, "log_text", None):
+            self._write_time_log_line(line)
+            return
         ctrl_append_line_with_tag(widget, line, tag=tag, max_lines=max_lines)
         self._write_runtime_log_line(line)
+        self._log_ui_blocking_op("append_line_with_tag", started_at, extra=f"tag={tag} chars={len(line)}")
 
-    @staticmethod
-    def _set_text_content(widget: ScrolledText, text: str) -> None:
+    def _set_text_content(self, widget: ScrolledText, text: str) -> None:
         if not isinstance(widget, ScrolledText):
             return
+        started_at = time.perf_counter()
         ctrl_set_text_content(widget, text)
+        self._log_ui_blocking_op("set_text_content", started_at, extra=f"chars={len(text)}")
 
     @staticmethod
     def _sanitize_inline_text(text: str) -> str:
@@ -4263,9 +3287,49 @@ class MicChunkUiApp(tk.Tk):
     def _close_asr_stream_line(self, tag: str = "") -> None:
         ctrl_close_asr_stream_line(self, tag=tag)
 
-    @staticmethod
-    def _trim_scrolled_text(widget: ScrolledText, max_lines: int = 800) -> None:
+    def _trim_scrolled_text(self, widget: ScrolledText, max_lines: int = 800) -> None:
+        started_at = time.perf_counter()
         ctrl_trim_scrolled_text(widget, max_lines=max_lines)
+        self._log_ui_blocking_op("trim_scrolled_text", started_at, extra=f"max_lines={max_lines}")
+
+    def _log_ui_blocking_op(self, label: str, started_at: float, *, threshold_ms: float = 50.0, extra: str = "") -> None:
+        if not bool(getattr(self, "_debug_ui_block_logging", False)):
+            return
+        elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+        if elapsed_ms < threshold_ms:
+            return
+        suffix = f" {extra}" if extra else ""
+        line = f"[UI_BLOCK] {label} {elapsed_ms:.1f}ms{suffix}"
+        self._write_runtime_log_line(line)
+        workspace_dir = getattr(self, "_workspace_dir", None)
+        if isinstance(workspace_dir, Path):
+            try:
+                log_dir = workspace_dir / "logs"
+                log_dir.mkdir(parents=True, exist_ok=True)
+                self._queue_async_log_write(log_dir / "ui_blocking.log", line)
+            except Exception:
+                pass
+        self._write_time_log_line(line)
+
+    def _start_ui_heartbeat_monitor(self, interval_ms: int = 50, warn_drift_ms: float = 120.0) -> None:
+        expected_next = time.perf_counter() + (interval_ms / 1000.0)
+
+        def _tick() -> None:
+            nonlocal expected_next
+            now = time.perf_counter()
+            drift_ms = (now - expected_next) * 1000.0
+            if drift_ms >= warn_drift_ms:
+                self._log_ui_blocking_op("ui_heartbeat_drift", now - (drift_ms / 1000.0), threshold_ms=warn_drift_ms, extra=f"interval={interval_ms}")
+            expected_next = now + (interval_ms / 1000.0)
+            try:
+                self.after(interval_ms, _tick)
+            except Exception:
+                pass
+
+        try:
+            self.after(interval_ms, _tick)
+        except Exception:
+            pass
 
     def _open_runtime_log_file(self) -> None:
         self._close_runtime_log_file()
@@ -4274,10 +3338,8 @@ class MicChunkUiApp(tk.Tk):
         file_path = log_dir / f"session_{ts.strftime('%Y%m%d_%H%M%S_%f')}.log"
         try:
             log_dir.mkdir(parents=True, exist_ok=True)
-            self._runtime_log_file = file_path.open("w", encoding="utf-8", buffering=1)
             self._runtime_log_file_path = file_path
         except Exception as exc:
-            self._runtime_log_file = None
             self._runtime_log_file_path = None
             self._log_asr_monitor(f"log_file_open_failed: {exc}")
             return
@@ -4288,18 +3350,10 @@ class MicChunkUiApp(tk.Tk):
     def _write_runtime_log_line(self, line: str) -> None:
         if not line:
             return
-        fp = self._runtime_log_file
-        if fp is None:
+        file_path = self._runtime_log_file_path
+        if not isinstance(file_path, Path):
             return
-        try:
-            fp.write(line + "\n")
-        except Exception:
-            try:
-                fp.close()
-            except Exception:
-                pass
-            self._runtime_log_file = None
-            self._runtime_log_file_path = None
+        self._queue_async_log_write(file_path, line)
 
     def _write_runtime_log_lines(self, lines: list[str]) -> None:
         if not lines:
@@ -4308,16 +3362,82 @@ class MicChunkUiApp(tk.Tk):
             self._write_runtime_log_line(line)
 
     def _close_runtime_log_file(self) -> None:
-        fp = self._runtime_log_file
-        self._runtime_log_file = None
         self._runtime_log_file_path = None
-        if fp is None:
+ 
+    def _queue_async_log_write(self, file_path: Path, line: str) -> None:
+        if not line:
             return
         try:
-            fp.flush()
-            fp.close()
+            self._async_log_queue.put_nowait((file_path, line))
         except Exception:
             pass
+
+    def _async_log_writer_loop(self) -> None:
+        while True:
+            item = self._async_log_queue.get()
+            if item is None:
+                self._async_log_queue.task_done()
+                break
+            file_path, line = item
+            try:
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                with file_path.open("a", encoding="utf-8") as fp:
+                    fp.write(line + "\n")
+            except Exception:
+                pass
+            finally:
+                self._async_log_queue.task_done()
+        self._async_log_writer_stop.set()
+
+    def _close_async_log_writer(self) -> None:
+        if not self._async_log_writer_thread.is_alive():
+            return
+        try:
+            self._async_log_queue.put_nowait(None)
+        except Exception:
+            pass
+        try:
+            self._async_log_queue.join()
+        except Exception:
+            pass
+        self._async_log_writer_stop.wait(timeout=1.0)
+
+    def _write_time_log_line(self, line: str) -> None:
+        if not line:
+            return
+        self._queue_async_log_write(self._time_log_file_path, line)
+
+    def _write_time_log_lines(self, lines: list[str]) -> None:
+        for line in lines:
+            self._write_time_log_line(line)
+
+    def _refresh_time_log_view(self) -> None:
+        widget = getattr(self, "log_text", None)
+        file_path = getattr(self, "_time_log_file_path", None)
+        if (not isinstance(widget, ScrolledText)) or (not isinstance(file_path, Path)):
+            return
+        if not file_path.exists():
+            return
+        try:
+            current_size = file_path.stat().st_size
+        except Exception:
+            return
+        if self._time_log_read_offset > current_size:
+            self._time_log_read_offset = 0
+        try:
+            with file_path.open("r", encoding="utf-8") as fp:
+                fp.seek(self._time_log_read_offset)
+                chunk = fp.read()
+                self._time_log_read_offset = fp.tell()
+        except Exception:
+            return
+        if not chunk:
+            return
+        widget.configure(state="normal")
+        widget.insert("end", chunk)
+        self._trim_scrolled_text(widget, max_lines=TIME_LOG_MAX_LINES)
+        widget.configure(state="disabled")
+        widget.see("end")
 
 
 def main() -> None:

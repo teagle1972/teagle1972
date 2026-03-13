@@ -2,8 +2,25 @@
 
 import tkinter as tk
 import tkinter.font as tkfont
+from pathlib import Path
+from time import perf_counter
 from tkinter import BOTH, LEFT, RIGHT, X, ttk
 from tkinter.scrolledtext import ScrolledText
+try:
+    from ..models.conversation_tab import (
+        CallRecordPageState,
+        CustomerDataPageState,
+        clone_call_record_page_state,
+        clone_customer_data_page_state,
+    )
+except Exception:
+    from models.conversation_tab import (
+        CallRecordPageState,
+        CustomerDataPageState,
+        clone_call_record_page_state,
+        clone_customer_data_page_state,
+    )
+
 try:
     from .ui_widgets import TtlScrolledText
 except Exception:
@@ -17,10 +34,44 @@ def build_conversation_tab(
     command_value: str,
     env_value: str,
     *,
+    tab_id_override: str = "",
     UI_FONT_FAMILY: str,
     UI_FONT_SIZE: int,
     conversation_tab_context_cls,
 ):
+    def _widget_exists(widget) -> bool:
+        try:
+            return bool(widget is not None and int(widget.winfo_exists() or 0) == 1)
+        except Exception:
+            return False
+
+    def _perf_log(line: str) -> None:
+        if not bool(getattr(self, "_debug_tab_perf_logging", False)):
+            return
+        try:
+            self._append_line(self.log_text, line)
+        except Exception:
+            pass
+        workspace_dir = getattr(self, "_workspace_dir", None)
+        if isinstance(workspace_dir, Path):
+            try:
+                log_dir = workspace_dir / "logs"
+                log_dir.mkdir(parents=True, exist_ok=True)
+                queue_async_log_write = getattr(self, "_queue_async_log_write", None)
+                if callable(queue_async_log_write):
+                    queue_async_log_write(log_dir / "ui_tab_perf.log", line)
+            except Exception:
+                pass
+
+    def _slow_ui_log(label: str, started_at: float, *, threshold_ms: float = 20.0, extra: str = "") -> None:
+        if not bool(getattr(self, "_debug_tab_perf_logging", False)):
+            return
+        elapsed_ms = (perf_counter() - started_at) * 1000.0
+        if elapsed_ms < threshold_ms:
+            return
+        suffix = f" {extra}" if extra else ""
+        _perf_log(f"[UI_BLOCK] {label} {elapsed_ms:.1f}ms tab={tab_title}{suffix}")
+
     ConversationTabContext = conversation_tab_context_cls
     conversation_font = ("微软雅黑", 9)
     header_font = ("微软雅黑", 9)
@@ -67,6 +118,8 @@ def build_conversation_tab(
         env_text = "local"
     self.conversation_server_env_var = tk.StringVar(value=env_text)
     self.call_record_selected_var = tk.StringVar(value="已选记录：-")
+    self._call_record_page_state = CallRecordPageState()
+    self._customer_data_page_state = CustomerDataPageState()
     self._call_record_item_by_iid = {}
     self._customer_data_customer_by_iid = {}
     self._customer_data_case_cache_by_name = {}
@@ -235,23 +288,31 @@ def build_conversation_tab(
 
     profile_bottom_panes = ttk.Panedwindow(profile_vertical_panes, orient=tk.HORIZONTAL)
     profile_vertical_panes.add(profile_bottom_panes, weight=2)
-    self.after_idle(lambda: self._safe_set_profile_sash(profile_vertical_panes, min_top=160, min_bottom=170, force_initial=True))
+    def _apply_profile_vertical_initial_sash() -> None:
+        if not _widget_exists(profile_vertical_panes):
+            return
+        self._safe_set_profile_sash(profile_vertical_panes, min_top=160, min_bottom=170, force_initial=True)
+
+    self.after_idle(_apply_profile_vertical_initial_sash)
     profile_vertical_panes.bind(
         "<Map>",
-        lambda _event: self.after_idle(
-            lambda: self._safe_set_profile_sash(
-                profile_vertical_panes,
-                min_top=160,
-                min_bottom=170,
-                force_initial=True,
-            )
-        ),
+        lambda _event: self.after_idle(_apply_profile_vertical_initial_sash),
         add="+",
     )
-    profile_vertical_panes.bind(
-        "<Configure>",
-        lambda _event: self.after_idle(lambda: self._safe_set_profile_sash(profile_vertical_panes, min_top=160, min_bottom=170)),
-    )
+    _pvp_cfg_pending = [False]
+
+    def _pvp_on_configure(_event=None, _self=self):
+        if _pvp_cfg_pending[0]:
+            return
+        _pvp_cfg_pending[0] = True
+
+        def _cb():
+            _pvp_cfg_pending[0] = False
+            _self._safe_set_profile_sash(profile_vertical_panes, min_top=160, min_bottom=170)
+
+        _self.after_idle(_cb)
+
+    profile_vertical_panes.bind("<Configure>", _pvp_on_configure)
 
     dialog_conversation_box = ttk.LabelFrame(profile_bottom_panes, text="客户与坐席对话", style="Section.TLabelframe", padding=0)
     dialog_conversation_text = _new_scrolled(dialog_conversation_box, state="normal")
@@ -344,11 +405,8 @@ def build_conversation_tab(
     )
 
     dialog_intent_box = ttk.LabelFrame(profile_bottom_panes, text="客户意图", style="Section.TLabelframe", padding=0)
-    dialog_intent_container = ttk.Frame(dialog_intent_box)
+    dialog_intent_container = ttk.Panedwindow(dialog_intent_box, orient=tk.VERTICAL)
     dialog_intent_container.pack(fill=BOTH, expand=True)
-    dialog_intent_container.rowconfigure(0, weight=3)
-    dialog_intent_container.rowconfigure(1, weight=2)
-    dialog_intent_container.columnconfigure(0, weight=1)
 
     dialog_intent_table_wrap = ttk.Frame(dialog_intent_container)
     dialog_intent_table_wrap.grid(row=0, column=0, sticky="nsew")
@@ -378,12 +436,11 @@ def build_conversation_tab(
     dialog_intent_table.tag_configure("intent_empty", background="#f8fafc", foreground="#64748b")
 
     # Hidden legacy buffer for compatibility with existing snapshot/summary logic.
-    dialog_intent_text = _new_scrolled(dialog_intent_container, state="disabled")
+    dialog_intent_text = _new_scrolled(dialog_intent_table_wrap, state="disabled")
     dialog_intent_text.grid(row=0, column=0, sticky="nsew")
     dialog_intent_text.grid_remove()
 
     dialog_billing_box = ttk.LabelFrame(dialog_intent_container, text="计费信息", style="Section.TLabelframe", padding=0)
-    dialog_billing_box.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
     dialog_billing_wrap = ttk.Frame(dialog_billing_box)
     dialog_billing_wrap.pack(fill=BOTH, expand=True)
     dialog_billing_wrap.rowconfigure(0, weight=1)
@@ -427,12 +484,33 @@ def build_conversation_tab(
     dialog_billing_text = _new_scrolled(dialog_billing_box, state="disabled")
     dialog_billing_text.pack(fill=BOTH, expand=False)
     dialog_billing_text.pack_forget()
+    dialog_intent_container.add(dialog_intent_table_wrap, weight=3)
+    dialog_intent_container.add(dialog_billing_box, weight=2)
+
+    _intent_sash_initialized = [False]
+
+    def _set_intent_initial_sash() -> None:
+        if _intent_sash_initialized[0]:
+            return
+        total_h = int(dialog_intent_container.winfo_height() or 0)
+        if total_h <= 0:
+            dialog_intent_container.after(60, _set_intent_initial_sash)
+            return
+        try:
+            dialog_intent_container.sashpos(0, max(120, int(total_h * 3 / 5)))
+        except tk.TclError:
+            return
+        _intent_sash_initialized[0] = True
+
+    dialog_intent_container.bind("<Map>", lambda _event: dialog_intent_container.after_idle(_set_intent_initial_sash), add="+")
     dialog_intent_queue_text = None
     dialog_strategy_text = None
     profile_bottom_panes.add(dialog_conversation_box, weight=3)
     profile_bottom_panes.add(dialog_intent_box, weight=1)
 
     def _safe_set_profile_bottom_sashes(force_initial: bool = False) -> None:
+        if not _widget_exists(profile_bottom_panes):
+            return
         width = int(profile_bottom_panes.winfo_width() or 0)
         if width <= 0:
             return
@@ -450,10 +528,10 @@ def build_conversation_tab(
             return
         initialized.add(pane_key)
 
-    self.after_idle(lambda: _safe_set_profile_bottom_sashes(force_initial=True))
+    self.after_idle(lambda: _safe_set_profile_bottom_sashes(force_initial=True) if _widget_exists(profile_bottom_panes) else None)
     profile_bottom_panes.bind(
         "<Map>",
-        lambda _event: self.after_idle(lambda: _safe_set_profile_bottom_sashes(force_initial=True)),
+        lambda _event: self.after_idle(lambda: _safe_set_profile_bottom_sashes(force_initial=True) if _widget_exists(profile_bottom_panes) else None),
         add="+",
     )
 
@@ -595,20 +673,15 @@ def build_conversation_tab(
 
     workflow_h_panes.bind("<Map>", lambda _e: workflow_h_panes.after_idle(_set_workflow_initial_sashes), add="+")
 
-    def _on_prompt_templates_edited(_event=None) -> None:
-        try:
-            summary_text = conversation_summary_prompt_text.get("1.0", "end-1c").strip()
-        except Exception:
-            summary_text = ""
-        try:
-            strategy_text_value = conversation_strategy_prompt_text.get("1.0", "end-1c").strip()
-        except Exception:
-            strategy_text_value = ""
-
-    for editor in (conversation_pending_items_prompt_text, conversation_summary_prompt_text, conversation_strategy_prompt_text):
-        editor.bind("<KeyRelease>", _on_prompt_templates_edited, add="+")
-
-    for editor in (conversation_system_instruction_text, conversation_intent_text, conversation_customer_profile_text):
+    for editor in (
+        conversation_system_instruction_text,
+        conversation_intent_text,
+        conversation_customer_profile_text,
+        conversation_strategy_text,
+        conversation_pending_items_prompt_text,
+        conversation_summary_prompt_text,
+        conversation_strategy_prompt_text,
+    ):
         editor.bind("<KeyRelease>", self._on_conversation_workflow_text_edited, add="+")
 
     call_record_tab.columnconfigure(0, weight=1)
@@ -648,6 +721,7 @@ def build_conversation_tab(
     call_record_tree.grid(row=0, column=0, sticky="nsew")
     record_scroll_y.grid(row=0, column=1, sticky="ns")
     call_record_tree.bind("<<TreeviewSelect>>", self._on_call_record_selected)
+    call_record_tree.bind("<ButtonRelease-1>", self._on_call_record_tree_click, add="+")
 
     call_record_detail_wrap = ttk.Frame(call_record_panes, style="App.TFrame")
     call_record_detail_panes = ttk.Panedwindow(call_record_detail_wrap, orient=tk.VERTICAL)
@@ -716,7 +790,7 @@ def build_conversation_tab(
 
     customer_data_record_tree.bind("<Configure>", _resize_customer_list_columns, add="+")
     customer_data_record_tree.bind("<<TreeviewSelect>>", self._on_customer_data_record_selected)
-    customer_data_record_tree.bind("<ButtonRelease-1>", self._on_customer_data_tree_click, add="+")
+    customer_data_record_tree.bind("<Button-1>", self._on_customer_data_tree_click, add="+")
     customer_data_record_tree.bind("<Double-Button-1>", self._on_customer_data_tree_double_click, add="+")
 
     customer_data_detail_wrap = ttk.Frame(customer_data_panes, style="App.TFrame")
@@ -747,92 +821,179 @@ def build_conversation_tab(
     customer_data_profile_table.tag_configure("profile_even", background="#eef1f5", foreground="#0f1f35")
     customer_data_profile_table.tag_configure("profile_odd", background="#e6e9ee", foreground="#0f1f35")
 
-    # ── 下方窗格：可滚动通话记录区 ────────────────────────────────────────
+    # ── 下方窗格：通话记录文本区（单一 tk.Text，无 Canvas）────────────────
     customer_data_canvas_frame = ttk.Frame(customer_data_detail_vpanes, style="App.TFrame")
     customer_data_canvas_frame.columnconfigure(0, weight=1)
     customer_data_canvas_frame.rowconfigure(0, weight=1)
-    customer_data_calls_canvas = tk.Canvas(customer_data_canvas_frame, bg="#f3f7fc", highlightthickness=0, bd=0, relief="flat")
-    customer_data_detail_scroll_y = ttk.Scrollbar(customer_data_canvas_frame, orient=tk.VERTICAL, command=customer_data_calls_canvas.yview, style="App.Vertical.TScrollbar")
-    customer_data_calls_canvas.configure(yscrollcommand=customer_data_detail_scroll_y.set)
-    customer_data_calls_canvas.grid(row=0, column=0, sticky="nsew")
-    customer_data_detail_scroll_y.grid(row=0, column=1, sticky="ns")
-    customer_data_calls_container = ttk.Frame(customer_data_calls_canvas, style="Panel.TFrame")
-    detail_window_id = customer_data_calls_canvas.create_window((0, 0), window=customer_data_calls_container, anchor="nw")
-    customer_data_calls_container.bind("<Configure>", lambda _event: customer_data_calls_canvas.configure(scrollregion=customer_data_calls_canvas.bbox("all")))
-    customer_data_calls_canvas.bind(
-        "<Configure>",
-        lambda event: customer_data_calls_canvas.itemconfigure(
-            detail_window_id,
-            width=max(1, int(getattr(event, "width", 0) or customer_data_calls_canvas.winfo_width() or 1)),
-        ),
+    customer_data_call_entries_wrap = tk.Text(
+        customer_data_canvas_frame,
+        wrap="word",
+        state="disabled",
+        font=conversation_font,
+        spacing1=8,
+        spacing2=4,
+        spacing3=8,
+        bg="#f3f7fc",
+        fg="#374151",
+        relief="flat",
+        highlightthickness=0,
+        bd=0,
     )
-    def _on_customer_data_mousewheel(event=None) -> str | None:
-        if event is None:
-            return None
-        delta = int(getattr(event, "delta", 0) or 0)
-        if delta == 0:
-            mouse_num = int(getattr(event, "num", 0) or 0)
-            if mouse_num == 4:
-                delta = 120
-            elif mouse_num == 5:
-                delta = -120
-        if delta == 0:
-            return None
-        step = max(1, int(abs(delta) / 120))
-        customer_data_calls_canvas.yview_scroll(-step if delta > 0 else step, "units")
-        return "break"
-    customer_data_calls_canvas.bind("<MouseWheel>", _on_customer_data_mousewheel, add="+")
-    customer_data_calls_canvas.bind("<Button-4>", _on_customer_data_mousewheel, add="+")
-    customer_data_calls_canvas.bind("<Button-5>", _on_customer_data_mousewheel, add="+")
-    customer_data_calls_container.bind("<MouseWheel>", _on_customer_data_mousewheel, add="+")
-    customer_data_calls_container.bind("<Button-4>", _on_customer_data_mousewheel, add="+")
-    customer_data_calls_container.bind("<Button-5>", _on_customer_data_mousewheel, add="+")
-    customer_data_calls_box = ttk.Frame(customer_data_calls_container, style="Panel.TFrame", padding=0)
-    customer_data_calls_box.pack(fill=BOTH, expand=True, padx=0, pady=0)
-    customer_data_call_entries_wrap = ttk.Frame(customer_data_calls_box, style="Panel.TFrame")
-    customer_data_call_entries_wrap.pack(fill=BOTH, expand=True)
+    customer_data_call_entries_wrap.tag_configure(
+        "time_header",
+        font=(conversation_font[0], conversation_font[1], "bold"),
+        foreground="#1e40af",
+        spacing1=16,
+        spacing3=4,
+    )
+    customer_data_call_entries_wrap.tag_configure(
+        "section_title",
+        font=(conversation_font[0], conversation_font[1], "bold"),
+        foreground="#1e293b",
+        spacing1=12,
+    )
+    customer_data_call_entries_wrap.tag_configure("section_body", foreground="#374151")
+    customer_data_detail_scroll_y = ttk.Scrollbar(
+        customer_data_canvas_frame,
+        orient=tk.VERTICAL,
+        command=customer_data_call_entries_wrap.yview,
+        style="App.Vertical.TScrollbar",
+    )
+    customer_data_call_entries_wrap.configure(yscrollcommand=customer_data_detail_scroll_y.set)
+    customer_data_call_entries_wrap.grid(row=0, column=0, sticky="nsew")
+    customer_data_detail_scroll_y.grid(row=0, column=1, sticky="ns")
+    # Canvas 和容器已废弃，保留属性兼容性
+    customer_data_calls_canvas = None
+    customer_data_calls_container = None
 
     customer_data_detail_vpanes.add(customer_data_profile_box, weight=1)
     customer_data_detail_vpanes.add(customer_data_canvas_frame, weight=3)
-    self.after_idle(lambda: self._safe_set_profile_sash(customer_data_detail_vpanes, min_top=60, min_bottom=80, force_initial=True))
+    def _apply_customer_data_detail_initial_sash() -> None:
+        if not _widget_exists(customer_data_detail_vpanes):
+            return
+        self._safe_set_profile_sash(customer_data_detail_vpanes, min_top=60, min_bottom=80, force_initial=True)
+
+    self.after_idle(_apply_customer_data_detail_initial_sash)
     customer_data_detail_vpanes.bind(
         "<Map>",
-        lambda _event: self.after_idle(
-            lambda: self._safe_set_profile_sash(
-                customer_data_detail_vpanes,
-                min_top=60,
-                min_bottom=80,
-                force_initial=True,
-            )
-        ),
+        lambda _event: self.after_idle(_apply_customer_data_detail_initial_sash),
         add="+",
     )
-    customer_data_detail_vpanes.bind(
-        "<Configure>",
-        lambda _event: self.after_idle(lambda: self._safe_set_profile_sash(customer_data_detail_vpanes, min_top=60, min_bottom=80)),
-    )
+    _cdv_cfg_pending = [False]
+
+    def _cdv_on_configure(_event=None, _self=self):
+        if _cdv_cfg_pending[0]:
+            return
+        _cdv_cfg_pending[0] = True
+
+        def _cb():
+            _cdv_cfg_pending[0] = False
+            _self._safe_set_profile_sash(customer_data_detail_vpanes, min_top=60, min_bottom=80)
+
+        _self.after_idle(_cb)
+
+    customer_data_detail_vpanes.bind("<Configure>", _cdv_on_configure)
     customer_data_panes.add(customer_data_list_box, weight=0)
     customer_data_panes.add(customer_data_detail_wrap, weight=1)
     _customer_data_sash_initialized = [False]
+    _customer_data_saved_sash = [-1]
 
-    def _set_customer_data_sash() -> None:
-        if _customer_data_sash_initialized[0]:
+    def _customer_data_sash_limits():
+        screen_w = customer_data_panes.winfo_screenwidth()
+        max_w = max(220, int(screen_w / 3))          # 最大 1/3 屏幕宽
+        default_w = max(120, min(int(screen_w / 6), max_w))  # 默认 1/6 屏幕宽
+        return max_w, default_w
+
+    def _is_active_page(page_name: str) -> bool:
+        return str(active_conversation_page["name"] or "") == page_name
+
+    def _apply_customer_data_sash(_retry: int = 0) -> None:
+        """切换到"客户资料"内页后显式调用，保证 sash 在控件可见时生效。
+        tkraise() 对已 mapped 的控件不触发 <Configure>/<Map>，不能依赖事件绑定。
+        """
+        if not _is_active_page("customer_data"):
+            return
+        started_at = perf_counter()
+        total_w = int(customer_data_panes.winfo_width() or 0)
+        if total_w <= 0:
+            if _retry < 10:
+                customer_data_panes.after(50, lambda: _apply_customer_data_sash(_retry + 1))
+            return
+        max_list_w, target_default = _customer_data_sash_limits()
+        # 优先使用 _restore() 通过 _sash_target 传递的目标值（保存值或 1/6 默认），
+        # 次之使用内存保存值，最后使用 1/6 默认值。
+        restore_target = getattr(customer_data_panes, "_sash_target", None)
+        if restore_target is not None:
+            target = max(120, min(int(restore_target), max_list_w))
+            customer_data_panes._sash_target = None  # 消费掉，避免重复使用
+        else:
+            saved = int(_customer_data_saved_sash[0] or -1)
+            target = max(120, min(saved, max_list_w)) if 120 <= saved <= max_list_w else target_default
+        try:
+            customer_data_panes.sashpos(0, target)
+            _customer_data_saved_sash[0] = target
+            _customer_data_sash_initialized[0] = True
+        except tk.TclError:
+            if _retry < 10:
+                customer_data_panes.after(50, lambda: _apply_customer_data_sash(_retry + 1))
+            return
+        _slow_ui_log("customer_data.apply_sash", started_at, extra=f"retry={_retry}")
+
+    def _ensure_customer_data_sash() -> None:
+        """由 <Configure> 事件触发，负责：① 强制上限 ② 保存用户拖拽值。
+        初始化由 _apply_customer_data_sash 负责，此处跳过未初始化状态。
+        """
+        if not _is_active_page("customer_data"):
+            return
+        if not _customer_data_sash_initialized[0]:
             return
         total_w = int(customer_data_panes.winfo_width() or 0)
         if total_w <= 0:
-            customer_data_panes.after(80, _set_customer_data_sash)
             return
-        min_right_w = 320
-        target_list_w = max(190, int(total_w * 0.19))
-        target_list_w = min(target_list_w, max(220, total_w - min_right_w))
+        max_list_w, target_default = _customer_data_sash_limits()
+        saved = int(_customer_data_saved_sash[0] or -1)
+        target = max(120, min(saved, max_list_w)) if saved >= 120 else target_default
         try:
-            customer_data_panes.sashpos(0, target_list_w)
+            current = int(customer_data_panes.sashpos(0))
         except tk.TclError:
             return
-        _customer_data_sash_initialized[0] = True
+        # 强制限制：拖拽超过屏幕 1/3 时弹回上限
+        if current > max_list_w:
+            try:
+                customer_data_panes.sashpos(0, max_list_w)
+            except tk.TclError:
+                return
+            _customer_data_saved_sash[0] = max_list_w
+            return
+        # 异常：切换 Tab 导致接近全屏时，恢复到保存值/默认值
+        if current >= max(180, total_w - 220):
+            try:
+                customer_data_panes.sashpos(0, target)
+            except tk.TclError:
+                return
+            _customer_data_saved_sash[0] = target
+            return
+        # 正常情况：保存用户拖拽后的位置（已在 1/3 以内）
+        _customer_data_saved_sash[0] = max(120, min(current, max_list_w))
 
-    customer_data_panes.bind("<Map>", lambda _event: customer_data_panes.after_idle(_set_customer_data_sash), add="+")
-    customer_data_panes.bind("<Configure>", lambda _event: customer_data_panes.after_idle(_set_customer_data_sash), add="+")
+    _cdp_cfg_pending = [False]
+
+    def _cdp_on_configure(_event=None):
+        if not _is_active_page("customer_data"):
+            return
+        started_at = perf_counter()
+        if _cdp_cfg_pending[0]:
+            return
+        _cdp_cfg_pending[0] = True
+
+        def _cb():
+            _cdp_cfg_pending[0] = False
+            _ensure_customer_data_sash()
+            _slow_ui_log("customer_data.on_configure", started_at)
+
+        customer_data_panes.after_idle(_cb)
+
+    customer_data_panes.bind("<Configure>", _cdp_on_configure, add="+")
 
     monitor_tab.columnconfigure(0, weight=1)
     monitor_tab.rowconfigure(0, weight=1)
@@ -910,6 +1071,9 @@ def build_conversation_tab(
     _monitor_sash_initialized = [False]
 
     def _set_monitor_sashes() -> None:
+        if not _is_active_page("monitor"):
+            return
+        started_at = perf_counter()
         if _monitor_sash_initialized[0]:
             return
         width = monitor_panels.winfo_width()
@@ -928,9 +1092,27 @@ def build_conversation_tab(
         except tk.TclError:
             return
         _monitor_sash_initialized[0] = True
+        _slow_ui_log("monitor.set_sashes", started_at)
+
+    _mp_cfg_pending = [False]
+
+    def _mp_on_configure(_event=None):
+        if not _is_active_page("monitor"):
+            return
+        started_at = perf_counter()
+        if _mp_cfg_pending[0]:
+            return
+        _mp_cfg_pending[0] = True
+
+        def _cb():
+            _mp_cfg_pending[0] = False
+            _set_monitor_sashes()
+            _slow_ui_log("monitor.on_configure", started_at)
+
+        monitor_panels.after_idle(_cb)
 
     monitor_panels.bind("<Map>", lambda _event: monitor_panels.after_idle(_set_monitor_sashes))
-    monitor_panels.bind("<Configure>", lambda _event: monitor_panels.after_idle(_set_monitor_sashes))
+    monitor_panels.bind("<Configure>", _mp_on_configure)
 
     active_conversation_page = {"name": "profile"}
     nav_button_text_map = {
@@ -951,32 +1133,53 @@ def build_conversation_tab(
             if isinstance(strip, tk.Frame):
                 strip.configure(bg=nav_selected_bar_color if is_selected else nav_unselected_bar_color)
 
+    current_context_id = [""]
+
     def _switch_conversation_page(page: str) -> None:
+        started_at = perf_counter()
         if page == "workflow":
             workflow_tab.tkraise()
             _refresh_nav_button_selected_state("workflow")
             active_conversation_page["name"] = "workflow"
+            if current_context_id[0]:
+                self._conversation_tabs[current_context_id[0]].active_page = "workflow"
+            _perf_log(f"[TAB_PERF] page.workflow {(perf_counter() - started_at) * 1000.0:.1f}ms tab={tab_title}")
             return
         if page == "call_record":
             call_record_tab.tkraise()
             _refresh_nav_button_selected_state("call_record")
             self._load_call_records_into_list()
             active_conversation_page["name"] = "call_record"
+            if current_context_id[0]:
+                self._conversation_tabs[current_context_id[0]].active_page = "call_record"
+            _perf_log(f"[TAB_PERF] page.call_record {(perf_counter() - started_at) * 1000.0:.1f}ms tab={tab_title}")
             return
         if page == "customer_data":
             customer_data_tab.tkraise()
             _refresh_nav_button_selected_state("customer_data")
             self._load_customer_data_records_into_list()
             active_conversation_page["name"] = "customer_data"
+            if current_context_id[0]:
+                self._conversation_tabs[current_context_id[0]].active_page = "customer_data"
+            # tkraise() 对已 mapped 的控件不触发 <Configure>/<Map>，
+            # 必须在页面切换后显式应用 sash，否则宽度设置不生效。
+            customer_data_panes.after(30, _apply_customer_data_sash)
+            _perf_log(f"[TAB_PERF] page.customer_data {(perf_counter() - started_at) * 1000.0:.1f}ms tab={tab_title}")
             return
         if page == "monitor":
             monitor_tab.tkraise()
             _refresh_nav_button_selected_state("monitor")
             active_conversation_page["name"] = "monitor"
+            if current_context_id[0]:
+                self._conversation_tabs[current_context_id[0]].active_page = "monitor"
+            _perf_log(f"[TAB_PERF] page.monitor {(perf_counter() - started_at) * 1000.0:.1f}ms tab={tab_title}")
             return
         customer_profile_tab.tkraise()
         _refresh_nav_button_selected_state("profile")
         active_conversation_page["name"] = "profile"
+        if current_context_id[0]:
+            self._conversation_tabs[current_context_id[0]].active_page = "profile"
+        _perf_log(f"[TAB_PERF] page.profile {(perf_counter() - started_at) * 1000.0:.1f}ms tab={tab_title}")
 
     nav_strip_map: dict[str, tk.Frame] = {}
     nav_button_map: dict[str, ttk.Button] = {}
@@ -1046,12 +1249,17 @@ def build_conversation_tab(
     self._load_call_records_into_list()
     self._load_customer_data_records_into_list()
 
-    self._conversation_tab_counter += 1
-    tab_id = f"conversation_{self._conversation_tab_counter}"
+    if tab_id_override:
+        tab_id = str(tab_id_override)
+    else:
+        self._conversation_tab_counter += 1
+        tab_id = f"conversation_{self._conversation_tab_counter}"
+    current_context_id[0] = tab_id
     return ConversationTabContext(
         tab_id=tab_id,
         title=tab_title,
         tab_frame=parent,
+        conversation_shell=conversation_shell,
         conversation_command_var=self.conversation_command_var,
         conversation_server_env_var=self.conversation_server_env_var,
         conversation_profile_status_var=self.conversation_profile_status_var,
@@ -1091,9 +1299,13 @@ def build_conversation_tab(
         customer_data_calls_canvas=self.customer_data_calls_canvas,
         customer_data_calls_container=self.customer_data_calls_container,
         customer_data_call_entries_wrap=self.customer_data_call_entries_wrap,
-        call_record_item_by_iid=self._call_record_item_by_iid,
-        customer_data_customer_by_iid=self._customer_data_customer_by_iid,
-        customer_data_case_cache_by_name=self._customer_data_case_cache_by_name,
+        call_record_state=clone_call_record_page_state(getattr(self, "_call_record_page_state", None)),
+        customer_data_state=clone_customer_data_page_state(getattr(self, "_customer_data_page_state", None)),
+        call_record_item_by_iid=dict(self._call_record_item_by_iid),
+        call_record_item_by_id=dict(getattr(self, "_call_record_item_by_id", {}) or {}),
+        customer_data_customer_by_iid=dict(self._customer_data_customer_by_iid),
+        customer_data_case_by_iid=dict(getattr(self, "_customer_data_case_by_iid", {}) or {}),
+        customer_data_case_cache_by_name=dict(self._customer_data_case_cache_by_name),
         conversation_strategy_history=self._conversation_strategy_history,
         conversation_customer_profile_history=self._conversation_customer_profile_history,
         conversation_intent_generator_history=self._conversation_intent_generator_history,

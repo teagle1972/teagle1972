@@ -120,7 +120,7 @@ def on_generate_intents_from_settings_done(
         app._append_intent_system_text(f"[LLM_INTENT_ERROR] {error_text}\n")
         app._append_line(
             app.log_text,
-            f"[{datetime.now().strftime('%H:%M:%S')}] [LLM_DIRECT] 鎰忓浘鐢熸垚澶辫触: {error_text}",
+            f"[{datetime.now().strftime('%H:%M:%S')}] [LLM_DIRECT] 意图生成失败: {error_text}",
         )
         app._set_llm_generation_frozen(False)
         return
@@ -130,7 +130,7 @@ def on_generate_intents_from_settings_done(
     app._append_line(
         app.log_text,
         (
-            f"[{datetime.now().strftime('%H:%M:%S')}] [LLM_DIRECT] 鎰忓浘鐢熸垚鎴愬姛: {summary} "
+            f"[{datetime.now().strftime('%H:%M:%S')}] [LLM_DIRECT] 意图生成成功: {summary} "
             f"| thinking_chars={len(thinking_text or '')}"
         ),
     )
@@ -502,4 +502,3 @@ def log_llm_prompts(app, kind_label: str, llm_prompt: str) -> None:
     for line in (llm_prompt or "").splitlines():
         app._append_line(app.log_text, f"[{ts}] [LLM_PROMPT][{kind_label}] {line}")
     app._append_line(app.log_text, f"[{ts}] [LLM_PROMPT][{kind_label}] PROMPT_END")
-

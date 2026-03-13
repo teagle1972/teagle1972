@@ -27,3 +27,29 @@ __pycache__/
 tmp/
 temp/
 
+# PyInstaller build & dist output
+build/
+**/build/
+**/build_*/
+dist/
+**/dist/
+*.spec
+*.exe
+*.pkg
+*.pyz
+*.pyz.toc
+*.toc
+base_library.zip
+warn-*.txt
+xref-*.html
+Analysis-*.toc
+COLLECT-*.toc
+EXE-*.toc
+PKG-*.toc
+PYZ-*.pyz
+PYZ-*.toc
+
+# Archives
+*.rar
+*.zip
+

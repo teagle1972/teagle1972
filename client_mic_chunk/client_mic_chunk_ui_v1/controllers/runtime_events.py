@@ -10,6 +10,33 @@ from typing import Callable
 from tkinter import filedialog, messagebox
 
 
+def _log_ui_blocking(app, label: str, started_at: float, *, threshold_ms: float = 100.0, extra: str = "") -> None:
+    if not bool(getattr(app, "_debug_ui_block_logging", False)):
+        return
+    elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+    if elapsed_ms < threshold_ms:
+        return
+    suffix = f" {extra}" if extra else ""
+    line = f"[UI_BLOCK] {label} {elapsed_ms:.1f}ms{suffix}"
+    widget = getattr(app, "log_text", None)
+    append_line = getattr(app, "_append_line", None)
+    if widget is not None and callable(append_line):
+        try:
+            append_line(widget, line)
+        except Exception:
+            pass
+    workspace_dir = getattr(app, "_workspace_dir", None)
+    if isinstance(workspace_dir, Path):
+        try:
+            log_dir = workspace_dir / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            queue_async_log_write = getattr(app, "_queue_async_log_write", None)
+            if callable(queue_async_log_write):
+                queue_async_log_write(log_dir / "ui_blocking.log", line)
+        except Exception:
+            pass
+
+
 def _normalize_command_text(value: str) -> str:
     text = str(value or "").strip()
     if not text:
@@ -92,6 +119,93 @@ def _to_float(value: object) -> float:
         return 0.0
 
 
+def _reset_send_fail_summary(app) -> None:
+    app._send_fail_summary_second = ""
+    app._send_fail_summary_reason = ""
+    app._send_fail_summary_count = 0
+    app._send_fail_summary_first_chunk = 0
+    app._send_fail_summary_last_chunk = 0
+
+
+def _flush_send_fail_summary(app) -> None:
+    count = int(getattr(app, "_send_fail_summary_count", 0) or 0)
+    if count <= 0:
+        return
+    ts_text = str(getattr(app, "_send_fail_summary_second", "") or "")
+    reason = app._sanitize_inline_text(str(getattr(app, "_send_fail_summary_reason", "") or ""))
+    first_chunk = int(getattr(app, "_send_fail_summary_first_chunk", 0) or 0)
+    last_chunk = int(getattr(app, "_send_fail_summary_last_chunk", 0) or 0)
+    if count == 1:
+        line = f"[{ts_text}] [send] chunk={last_chunk} failed: {reason}"
+    else:
+        line = (
+            f"[{ts_text}] [send] failed chunks={first_chunk}-{last_chunk} "
+            f"count={count} reason={reason}"
+        )
+    app._append_line(app.log_text, line)
+    _reset_send_fail_summary(app)
+
+
+def _consume_send_fail_summary(app, *, ts_text: str, chunk: object, reason: str) -> None:
+    reason_text = app._sanitize_inline_text(str(reason or ""))
+    chunk_index = _to_int(chunk)
+    if (
+        int(getattr(app, "_send_fail_summary_count", 0) or 0) > 0
+        and (
+            str(getattr(app, "_send_fail_summary_second", "") or "") != ts_text
+            or str(getattr(app, "_send_fail_summary_reason", "") or "") != reason_text
+        )
+    ):
+        _flush_send_fail_summary(app)
+    if int(getattr(app, "_send_fail_summary_count", 0) or 0) <= 0:
+        app._send_fail_summary_second = ts_text
+        app._send_fail_summary_reason = reason_text
+        app._send_fail_summary_count = 1
+        app._send_fail_summary_first_chunk = chunk_index
+        app._send_fail_summary_last_chunk = chunk_index
+        return
+    app._send_fail_summary_count = int(getattr(app, "_send_fail_summary_count", 0) or 0) + 1
+    app._send_fail_summary_last_chunk = chunk_index
+
+
+def _reset_session_trace(app) -> None:
+    app._session_trace_start_source = ""
+    app._session_trace_start_trigger = ""
+    app._session_trace_last_command = ""
+    app._session_trace_last_action = ""
+    app._session_trace_first_tts_frame_seen = False
+    app._session_trace_tts_started = False
+    app._session_trace_tts_empty = False
+    app._session_trace_disconnect_channels = []
+    app._session_trace_summary_emitted = False
+
+
+def _emit_session_trace_summary(app, *, ts_text: str, end_reason: str = "") -> None:
+    if bool(getattr(app, "_session_trace_summary_emitted", False)):
+        return
+    start_source = app._sanitize_inline_text(str(getattr(app, "_session_trace_start_source", "") or "")) or "-"
+    start_trigger = app._sanitize_inline_text(str(getattr(app, "_session_trace_start_trigger", "") or "")) or "-"
+    last_command = app._sanitize_inline_text(str(getattr(app, "_session_trace_last_command", "") or "")) or "-"
+    last_action = app._sanitize_inline_text(str(getattr(app, "_session_trace_last_action", "") or "")) or "-"
+    disconnect_channels = getattr(app, "_session_trace_disconnect_channels", None)
+    if isinstance(disconnect_channels, list) and disconnect_channels:
+        disconnect_order = "->".join(str(item) for item in disconnect_channels if str(item or "").strip()) or "-"
+    else:
+        disconnect_order = "-"
+    tts_started = "yes" if bool(getattr(app, "_session_trace_tts_started", False)) else "no"
+    first_tts_frame = "yes" if bool(getattr(app, "_session_trace_first_tts_frame_seen", False)) else "no"
+    tts_empty = "yes" if bool(getattr(app, "_session_trace_tts_empty", False)) else "no"
+    summary = (
+        f"[{ts_text}] [session/summary] start_source={start_source} trigger={start_trigger} "
+        f"last_command={last_command} action={last_action} "
+        f"tts_started={tts_started} first_tts_frame={first_tts_frame} "
+        f"tts_empty={tts_empty} disconnect_order={disconnect_order} "
+        f"end_reason={app._sanitize_inline_text(end_reason) or '-'}"
+    )
+    app._append_line(app.log_text, summary)
+    app._session_trace_summary_emitted = True
+
+
 def clear_views(app) -> None:
     sync_intent_state = getattr(app, "_sync_dialog_intent_strategy_for_active_customer", None)
     if callable(sync_intent_state):
@@ -158,6 +272,8 @@ def clear_views(app) -> None:
     app._pending_log_lines.clear()
     app._next_log_flush_at = 0.0
     app._reset_send_done_summary()
+    _reset_send_fail_summary(app)
+    _reset_session_trace(app)
     app._tts_stream_active = False
     app._tts_stream_content_start = ""
     app._dialog_agent_stream_active = False
@@ -273,6 +389,7 @@ def poll_events(
     busy_interval_ms: int,
     idle_interval_ms: int,
 ) -> None:
+    poll_started_at = time.perf_counter()
     app._drain_event_queues(limit=drain_limit)
     tick_start = time.perf_counter()
     processed = 0
@@ -285,6 +402,7 @@ def poll_events(
         if next_item is None:
             break
         source, event = next_item
+        event_started_at = time.perf_counter()
         if source == "main":
             target_tab_id = app._runtime_conversation_tab_id or app._active_conversation_tab_id
             if target_tab_id:
@@ -294,6 +412,7 @@ def poll_events(
                 app._handle_event(event)
         else:
             app._handle_settings_asr_event(event)
+        _log_ui_blocking(app, "event_dispatch", event_started_at, extra=f"source={source} kind={getattr(event, 'kind', '')}")
         processed += 1
 
     app._flush_send_done_summary(force=False)
@@ -308,6 +427,13 @@ def poll_events(
     )
     next_interval = busy_interval_ms if has_pending else idle_interval_ms
     app.after(next_interval, app._poll_events)
+    _log_ui_blocking(
+        app,
+        "poll_events",
+        poll_started_at,
+        threshold_ms=max(100.0, max_ms_per_tick),
+        extra=f"processed={processed} pending={int(has_pending)} next_interval={next_interval}",
+    )
 
 
 def handle_event(
@@ -317,7 +443,10 @@ def handle_event(
     event_history_max: int,
     event_history_trim_batch: int,
 ) -> None:
+    handle_started_at = time.perf_counter()
     ts_text = event.ts.strftime("%H:%M:%S")
+    if event.kind != "audio_send_failed":
+        _flush_send_fail_summary(app)
     app._event_history.append(
         {
             "ts": event.ts.isoformat(timespec="milliseconds"),
@@ -332,6 +461,12 @@ def handle_event(
         del app._event_history[:trim_count]
 
     if event.kind == "process_started":
+        _reset_send_fail_summary(app)
+        _reset_session_trace(app)
+        app._tab_switch_freeze_notice_shown = False
+        app._call_overlay_restart_in_progress = False
+        app._call_overlay_restart_scheduled = False
+        app._call_overlay_reconnect_pending = False
         prev_state = str(app.state_var.get() if hasattr(app, "state_var") else "").strip().lower()
         if prev_state != "running":
             _append_dialog_session_marker(app, "start", event.ts)
@@ -391,30 +526,59 @@ def handle_event(
                 except Exception:
                     pass
         app._refresh_dialog_intent_queue_view()
+        app._dialog_summary_pending_warning = False
+        app._allow_next_tab_switch_without_summary = False
         app._append_line(app.log_text, f"[{ts_text}] process started: {event.payload.get('command', '')}")
+        _log_ui_blocking(app, "handle_event", handle_started_at, extra=f"kind={event.kind}")
         return
 
     if event.kind in {"process_stopped", "process_exit"}:
         prev_state = str(app.state_var.get() if hasattr(app, "state_var") else "").strip().lower()
         if prev_state != "stopped":
             _append_dialog_session_marker(app, "end", event.ts)
+            app._dialog_summary_pending_warning = True
         app.state_var.set("stopped")
-        close_call_overlay = getattr(app, "_close_customer_call_overlay", None)
-        if callable(close_call_overlay):
-            try:
-                close_call_overlay()
-            except Exception:
-                pass
+        reconnect_pending = bool(getattr(app, "_call_overlay_reconnect_pending", False))
+        restart_in_progress = bool(getattr(app, "_call_overlay_restart_in_progress", False))
+        restart_scheduled = bool(getattr(app, "_call_overlay_restart_scheduled", False))
+        if not reconnect_pending and not restart_in_progress:
+            close_call_overlay = getattr(app, "_close_customer_call_overlay", None)
+            if callable(close_call_overlay):
+                try:
+                    close_call_overlay()
+                except Exception:
+                    pass
+            call_timer = getattr(app, "_call_timer_overlay", None)
+            if call_timer is not None:
+                try:
+                    call_timer.freeze()
+                except Exception:
+                    pass
         app._sync_conversation_profile_status()
         code = event.payload.get("return_code")
         app._set_microphone_open("main", False, reason=event.kind)
         app._close_asr_stream_line()
         app._close_dialog_agent_stream_line()
         app._runtime_conversation_tab_id = ""
+        if reconnect_pending and (not restart_scheduled):
+            app._call_overlay_restart_scheduled = True
+            resume_fn = getattr(app, "_resume_customer_data_call_icon_after_stop", None)
+            if callable(resume_fn):
+                try:
+                    app.after(0, resume_fn)
+                except Exception:
+                    try:
+                        resume_fn()
+                    except Exception:
+                        pass
+        app._tab_switch_freeze_notice_shown = False
+        _flush_send_fail_summary(app)
         app._flush_send_done_summary(force=True)
         app._flush_log_buffer(force=True)
+        _emit_session_trace_summary(app, ts_text=ts_text, end_reason=event.kind)
         app._append_line(app.log_text, f"[{ts_text}] process exit: return_code={code}")
         app._close_runtime_log_file()
+        _log_ui_blocking(app, "handle_event", handle_started_at, extra=f"kind={event.kind}")
         return
 
     if event.kind == "log":
@@ -463,6 +627,7 @@ def handle_event(
         return
 
     if event.kind == "tts_first_frame":
+        app._session_trace_first_tts_frame_seen = True
         on_overlay_tts_first_frame = getattr(app, "_on_customer_call_overlay_tts_first_frame", None)
         if callable(on_overlay_tts_first_frame):
             try:
@@ -481,7 +646,7 @@ def handle_event(
     if event.kind == "audio_send_failed":
         reason = str(event.payload.get("reason", ""))
         chunk = event.payload.get("chunk_index")
-        app._append_line(app.log_text, f"[{ts_text}] [send] chunk={chunk} failed: {reason}")
+        _consume_send_fail_summary(app, ts_text=ts_text, chunk=chunk, reason=reason)
         return
 
     if event.kind == "ws_command":
@@ -492,6 +657,8 @@ def handle_event(
         terminate_trace_id = app._sanitize_inline_text(str(event.payload.get("terminate_trace_id", "")))
         terminate_by = app._sanitize_inline_text(str(event.payload.get("terminate_by", "")))
         trigger_text = app._sanitize_inline_text(str(event.payload.get("trigger_text", "")))
+        app._session_trace_last_command = command
+        app._session_trace_last_action = action
         app._append_line(
             app.log_text,
             (
@@ -506,6 +673,8 @@ def handle_event(
         source = app._sanitize_inline_text(str(event.payload.get("source", "") or ""))
         trigger_text = app._sanitize_inline_text(str(event.payload.get("trigger_text", "") or ""))
         started_at = event.payload.get("started_at")
+        app._session_trace_start_source = source
+        app._session_trace_start_trigger = trigger_text
         app._append_line(
             app.log_text,
             f"[{ts_text}] [billing] started source={source or '-'} trigger={trigger_text or '-'} started_at={started_at}",
@@ -629,6 +798,18 @@ def handle_event(
                 f"source={terminate_source} terminate_reason={terminate_reason} trace_id={terminate_trace_id}"
             ),
         )
+        disconnect_channels = getattr(app, "_session_trace_disconnect_channels", None)
+        if not isinstance(disconnect_channels, list):
+            disconnect_channels = []
+            app._session_trace_disconnect_channels = disconnect_channels
+        if channel and (channel not in disconnect_channels):
+            disconnect_channels.append(channel)
+        if channel in {"control", "single"}:
+            _emit_session_trace_summary(
+                app,
+                ts_text=ts_text,
+                end_reason=terminate_reason or reason or cause,
+            )
         return
 
     if event.kind == "asr_partial":
@@ -677,6 +858,9 @@ def handle_event(
         return
 
     if event.kind == "tts_start":
+        app._session_trace_tts_started = True
+        tts_text = app._sanitize_inline_text(str(event.payload.get("text", "") or ""))
+        app._session_trace_tts_empty = not bool(tts_text)
         app._close_tts_stream_line()
         return
 

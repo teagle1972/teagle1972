@@ -441,6 +441,9 @@ def open_dialog_summary_modal(app, *, ui_font_family: str) -> None:
         gen_btn = ttk.Button(header, text="生成", style="Soft.TButton", width=5)
         gen_btn.pack(side=RIGHT)
         text_widget = _make_scrolled(box)
+        # LLM 思考过程用灰色，正式内容用黑色
+        text_widget.tag_configure("thinking", foreground="#9ca3af")
+        text_widget.tag_configure("result", foreground="#111827")
         text_widget.pack(fill=BOTH, expand=True)
         panes.add(box, weight=1)
         return text_widget, gen_btn, clear_btn, scope_var
@@ -478,7 +481,7 @@ def open_dialog_summary_modal(app, *, ui_font_family: str) -> None:
         "auto_chain": False,
     }
 
-    def _set_modal_text(widget: ScrolledText, text: str, clear: bool = False) -> None:
+    def _set_modal_text(widget: ScrolledText, text: str, clear: bool = False, tag: str = "") -> None:
         if (not win.winfo_exists()) or (not widget.winfo_exists()):
             return
         prev_state = str(widget.cget("state"))
@@ -486,7 +489,7 @@ def open_dialog_summary_modal(app, *, ui_font_family: str) -> None:
         if clear:
             widget.delete("1.0", "end")
         if text:
-            widget.insert("end", text)
+            widget.insert("end", text, tag) if tag else widget.insert("end", text)
         widget.configure(state=prev_state if prev_state in {"normal", "disabled"} else "normal")
         widget.see("end")
 
@@ -505,7 +508,7 @@ def open_dialog_summary_modal(app, *, ui_font_family: str) -> None:
             _set_modal_text(target_widget, "", clear=True)
         piece = final_text[pos : pos + chunk_size]
         if piece:
-            _set_modal_text(target_widget, piece, clear=False)
+            _set_modal_text(target_widget, piece, clear=False, tag="result")
         next_pos = pos + chunk_size
         if next_pos < len(final_text):
             win.after(
@@ -565,14 +568,14 @@ def open_dialog_summary_modal(app, *, ui_font_family: str) -> None:
         if task_key == "pending_items":
             if error_text:
                 modal_state["phase_pending_items"] = "result"
-                _set_modal_text(commitments_text, f"[ERROR] {error_text}", clear=True)
+                _set_modal_text(commitments_text, f"[ERROR] {error_text}", clear=True, tag="result")
                 _set_gen_buttons_state("normal")
                 return
             pending_items = extract_pending_commitment_items(result_text or "")
             if pending_items:
                 confirmed_rows = open_commitment_confirmation_dialog(app, win, pending_items)
                 if confirmed_rows is None:
-                    _set_modal_text(commitments_text, "已取消待确认事项确认。", clear=True)
+                    _set_modal_text(commitments_text, "已取消待确认事项确认。", clear=True, tag="result")
                     _set_gen_buttons_state("normal")
                     return
                 commitments_content = format_commitment_confirmation_text(confirmed_rows)
@@ -580,7 +583,7 @@ def open_dialog_summary_modal(app, *, ui_font_family: str) -> None:
                 commitments_content = "【客户承诺-执行事项】\n无待确认事项"
             modal_state["phase_pending_items"] = "result"
             modal_state["commitments_content"] = commitments_content
-            _set_modal_text(commitments_text, commitments_content, clear=True)
+            _set_modal_text(commitments_text, commitments_content, clear=True, tag="result")
             if not modal_state.get("auto_chain"):
                 _set_gen_buttons_state("normal")
                 _show_done_toast()
@@ -609,7 +612,7 @@ def open_dialog_summary_modal(app, *, ui_font_family: str) -> None:
         if task_key == "summary":
             if error_text:
                 modal_state["phase_summary"] = "result"
-                _set_modal_text(summary_text, f"[ERROR] {error_text}", clear=True)
+                _set_modal_text(summary_text, f"[ERROR] {error_text}", clear=True, tag="result")
                 _set_gen_buttons_state("normal")
                 return
             if str(modal_state.get("phase_summary", "thinking")) != "result":
@@ -642,7 +645,7 @@ def open_dialog_summary_modal(app, *, ui_font_family: str) -> None:
         # task_key == "strategy"
         if error_text:
             modal_state["phase_strategy"] = "result"
-            _set_modal_text(strategy_text, f"[ERROR] {error_text}", clear=True)
+            _set_modal_text(strategy_text, f"[ERROR] {error_text}", clear=True, tag="result")
             _set_gen_buttons_state("normal")
             return
         if str(modal_state.get("phase_strategy", "thinking")) != "result":
@@ -674,7 +677,7 @@ def open_dialog_summary_modal(app, *, ui_font_family: str) -> None:
                 phase_key, target_widget = _resolve_phase_and_widget()
                 if str(modal_state.get(phase_key, "thinking")) != "thinking":
                     return
-                _set_modal_text(target_widget, chunk, clear=False)
+                _set_modal_text(target_widget, chunk, clear=False, tag="thinking")
 
             app.after(0, _append_thinking)
 
@@ -691,7 +694,7 @@ def open_dialog_summary_modal(app, *, ui_font_family: str) -> None:
                 if first_chunk:
                     modal_state[phase_key] = "result"
                     _set_modal_text(target_widget, "", clear=True)
-                _set_modal_text(target_widget, chunk, clear=False)
+                _set_modal_text(target_widget, chunk, clear=False, tag="result")
 
             app.after(0, _append_content)
 
@@ -864,8 +867,11 @@ def open_dialog_summary_modal(app, *, ui_font_family: str) -> None:
         except Exception as exc:
             messagebox.showerror("保存失败", str(exc))
             return
-        app._load_call_records_into_list()
-        app._load_customer_data_records_into_list()
+        app._mark_conversation_tab_data_dirty()
+        app._dialog_summary_pending_warning = False
+        app._allow_next_tab_switch_without_summary = False
+        app._load_call_records_into_list(force_reload=True)
+        app._load_customer_data_records_into_list(force_reload=True)
         win.destroy()
         switcher = app._conversation_page_switcher
         if callable(switcher):

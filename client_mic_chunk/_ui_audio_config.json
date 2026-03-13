@@ -4,10 +4,15 @@
   "audio_tuning": {
     "chunk_ms": "20",
     "queue_size": "128",
-    "aec_ref_delay_ms": "180",
-    "aec_max_suppress_gain": "2.2",
-    "aec_near_end_protect_ratio": "1.22",
-    "aec_tts_warmup_mute_ms": "80",
-    "aec_tts_ref_wait_mute_ms": "1200"
+    "aec_ref_delay_ms": "160",
+    "aec_max_suppress_gain": "1.8",
+    "aec_near_end_protect_ratio": "1.2",
+    "aec_tts_warmup_mute_ms": "100",
+    "aec_tts_ref_wait_mute_ms": "1200",
+    "aec_auto_delay_min_score": "0.24",
+    "aec_search_span_ms": "300",
+    "aec_auto_delay_interval_chunks": "4",
+    "aec_adapt_alpha": "0.3",
+    "aec_ref_min_rms": "450"
   }
 }

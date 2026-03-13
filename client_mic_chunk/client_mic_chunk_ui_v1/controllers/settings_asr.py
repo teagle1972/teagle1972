@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import time
 from datetime import datetime
@@ -32,7 +32,7 @@ def start_settings_asr(app) -> None:
         )
         app._log_asr_monitor(f"strict_webrtc_preflight_failed scope=settings_asr reason={strict_message}")
         app.asr_enabled_var.set(False)
-        app.asr_toggle_text_var.set("寮€鍚疉SR璇嗗埆")
+        app.asr_toggle_text_var.set("开启ASR识别")
         return
     app._append_line(
         app.log_text,

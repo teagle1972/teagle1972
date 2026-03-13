@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 import threading
 from typing import Callable, Mapping, Optional
@@ -37,17 +38,18 @@ class ClientProcessBridge:
                 for key, value in env_overrides.items():
                     env[str(key)] = str(value)
 
+            argv = self._split_command(command)
+            creationflags = self._win_creationflags()
             self._proc = subprocess.Popen(
-                command,
+                argv,
                 cwd=cwd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-                shell=True,
+                text=False,
+                bufsize=0,
+                shell=False,
                 env=env,
+                creationflags=creationflags,
             )
 
             self._reader_thread = threading.Thread(target=self._read_stdout_loop, daemon=True)
@@ -62,12 +64,12 @@ class ClientProcessBridge:
             return
 
         if os.name == "nt":
-            # shell=True launches a parent shell process; ensure the whole process tree is terminated.
             subprocess.run(
                 ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=False,
+                creationflags=self._win_creationflags(),
             )
             try:
                 proc.wait(timeout=3)
@@ -90,8 +92,8 @@ class ClientProcessBridge:
             return
 
         try:
-            for line in proc.stdout:
-                raw = line.rstrip("\r\n")
+            for line in iter(proc.stdout.readline, b""):
+                raw = self._decode_output_line(line).rstrip("\r\n")
                 if not raw:
                     continue
                 self._on_event(UiEvent(kind="log", raw=raw))
@@ -101,4 +103,27 @@ class ClientProcessBridge:
         finally:
             return_code = proc.poll()
             self._on_event(UiEvent(kind="process_exit", payload={"return_code": return_code}))
+
+    @staticmethod
+    def _split_command(command: str) -> list[str]:
+        if os.name == "nt":
+            return shlex.split(command, posix=False)
+        return shlex.split(command, posix=True)
+
+    @staticmethod
+    def _win_creationflags() -> int:
+        if os.name != "nt":
+            return 0
+        return int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+    @staticmethod
+    def _decode_output_line(line: bytes) -> str:
+        if isinstance(line, str):
+            return line
+        for encoding in ("utf-8", "utf-8-sig", "gb18030", "cp936"):
+            try:
+                return line.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+        return line.decode("utf-8", errors="replace")
 

@@ -4,12 +4,48 @@ import ctypes
 import json
 import shutil
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 from typing import Iterator
 
 import tkinter as tk
 from tkinter import messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
+
+try:
+    from .call_record_state import (
+        apply_call_record_state_to_app,
+        apply_call_record_state_to_context,
+        build_call_record_state_from_app,
+        build_call_record_state_from_context,
+        make_empty_call_record_state,
+    )
+except Exception:
+    from call_record_state import (
+        apply_call_record_state_to_app,
+        apply_call_record_state_to_context,
+        build_call_record_state_from_app,
+        build_call_record_state_from_context,
+        make_empty_call_record_state,
+    )
+
+try:
+    from .customer_data_state import (
+        apply_customer_data_state_to_app,
+        apply_customer_data_state_to_context,
+        build_customer_data_state_from_app,
+        build_customer_data_state_from_context,
+        make_empty_customer_data_state,
+    )
+except Exception:
+    from customer_data_state import (
+        apply_customer_data_state_to_app,
+        apply_customer_data_state_to_context,
+        build_customer_data_state_from_app,
+        build_customer_data_state_from_context,
+        make_empty_customer_data_state,
+    )
 
 try:
     from ..services.tab_registry import (
@@ -30,6 +66,222 @@ def register_conversation_tab_context(app, context, is_template: bool = False) -
         app._conversation_template_tab_id = context.tab_id
 
 
+def _log_tab_switch_timing(app, label: str, started_at: float, *, extra: str = "") -> None:
+    if not bool(getattr(app, "_debug_tab_perf_logging", False)):
+        return
+    widget = getattr(app, "log_text", None)
+    append_line = getattr(app, "_append_line", None)
+    elapsed_ms = (perf_counter() - started_at) * 1000.0
+    suffix = f" {extra}" if extra else ""
+    line = f"[TAB_PERF] {label} {elapsed_ms:.1f}ms{suffix}"
+    if widget is not None and callable(append_line):
+        try:
+            append_line(widget, line)
+        except Exception:
+            pass
+
+
+def _log_tab_context_debug(app, message: str) -> None:
+    if not bool(getattr(app, "_debug_customer_data_logging", False)):
+        return
+    ts_text = datetime.now().strftime("%H:%M:%S")
+    line = f"[{ts_text}] [TAB_CTX] {message}"
+    widget = getattr(app, "log_text", None)
+    append_line = getattr(app, "_append_line", None)
+    if widget is not None and callable(append_line):
+        try:
+            append_line(widget, line)
+        except Exception:
+            pass
+    workspace_dir = getattr(app, "_workspace_dir", None)
+    if workspace_dir is None:
+        return
+    try:
+        log_dir = workspace_dir / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        queue_async_log_write = getattr(app, "_queue_async_log_write", None)
+        if callable(queue_async_log_write):
+            queue_async_log_write(log_dir / "customer_data_debug.log", line)
+    except Exception:
+        return
+
+
+def _show_summary_pending_switch_dialog(app) -> bool:
+    parent = getattr(app, "_main_notebook", None) or app
+    result = {"continue": False}
+    win = tk.Toplevel(parent)
+    win.title("提示")
+    win.transient(app)
+    win.grab_set()
+    win.resizable(False, False)
+    win.configure(bg="#ffffff")
+
+    frame = ttk.Frame(win, padding=(18, 16, 18, 14), style="Card.TFrame")
+    frame.pack(fill=tk.BOTH, expand=True)
+    ttk.Label(
+        frame,
+        text="尚未进行对话总结，继续切换可能丢失对话数据。",
+        justify="left",
+        wraplength=640,
+    ).pack(fill=tk.X)
+    btn_row = ttk.Frame(frame, style="Panel.TFrame")
+    btn_row.pack(pady=(16, 0))
+
+    def _close(allow_continue: bool) -> None:
+        result["continue"] = allow_continue
+        try:
+            win.grab_release()
+        except Exception:
+            pass
+        try:
+            win.destroy()
+        except Exception:
+            pass
+
+    ttk.Button(btn_row, text="返回", command=lambda: _close(False)).pack(side=tk.LEFT, padx=(0, 12))
+    ttk.Button(btn_row, text="继续", command=lambda: _close(True), style="Primary.TButton").pack(side=tk.LEFT)
+    win.protocol("WM_DELETE_WINDOW", lambda: _close(False))
+    win.update_idletasks()
+    try:
+        win.minsize(720, 220)
+        px = max(0, int((win.winfo_screenwidth() - win.winfo_width()) / 2))
+        py = max(0, int((win.winfo_screenheight() - win.winfo_height()) / 2))
+        win.geometry(f"720x220+{px}+{py}")
+    except Exception:
+        pass
+    win.wait_window()
+    return bool(result["continue"])
+
+
+def _should_warn_summary_pending_on_tab_switch(app, selected_tab_name: str) -> bool:
+    current_tab_id = str(getattr(app, "_bound_conversation_tab_id", "") or "")
+    current_context = app._conversation_tabs.get(current_tab_id) if current_tab_id else None
+    current_frame_name = str(getattr(current_context, "tab_frame", "") or "") if current_context is not None else ""
+    if not current_tab_id or not current_frame_name or selected_tab_name == current_frame_name:
+        return False
+    if str(getattr(current_context, "active_page", "profile") or "profile") != "profile":
+        return False
+    if not bool(getattr(app, "_dialog_summary_pending_warning", False)):
+        return False
+    if bool(getattr(app, "_allow_next_tab_switch_without_summary", False)):
+        return False
+    return True
+
+
+def _is_tab_switch_locked(app) -> bool:
+    bridge = getattr(app, "_bridge", None)
+    if bool(getattr(bridge, "running", False)):
+        return True
+    state_var = getattr(app, "state_var", None)
+    if state_var is not None:
+        try:
+            return str(state_var.get() or "").strip().lower() == "running"
+        except Exception:
+            return False
+    return False
+
+
+def on_main_notebook_tab_click(app, event=None) -> str | None:
+    notebook = getattr(app, "_main_notebook", None)
+    if (event is None) or (not isinstance(notebook, ttk.Notebook)):
+        return None
+    try:
+        target_tab = str(notebook.index(f"@{int(getattr(event, 'x', 0))},{int(getattr(event, 'y', 0))}"))
+    except Exception:
+        return None
+    tabs = notebook.tabs()
+    if not (0 <= int(target_tab or -1) < len(tabs)):
+        return None
+    selected_tab_name = str(tabs[int(target_tab)] or "")
+    if not _should_warn_summary_pending_on_tab_switch(app, selected_tab_name):
+        return None
+    allow_switch = _show_summary_pending_switch_dialog(app)
+    if not allow_switch:
+        return "break"
+    app._allow_next_tab_switch_without_summary = True
+    return None
+
+
+def _get_locked_conversation_tab_id(app) -> str:
+    return str(
+        getattr(app, "_runtime_conversation_tab_id", "") or getattr(app, "_active_conversation_tab_id", "") or ""
+    )
+
+
+def _set_text_widget_quiet(widget, text: str = "", *, disabled: bool | None = None) -> None:
+    if not isinstance(widget, (tk.Text, ScrolledText)):
+        return
+    try:
+        prev_state = str(widget.cget("state"))
+    except Exception:
+        prev_state = "normal"
+    try:
+        widget.configure(state="normal")
+        widget.delete("1.0", "end")
+        if text:
+            widget.insert("1.0", text)
+        final_state = prev_state if disabled is None else ("disabled" if disabled else "normal")
+        widget.configure(state=final_state if final_state in {"normal", "disabled"} else "normal")
+    except Exception:
+        return
+
+
+def _hibernate_inactive_tab_widgets(context) -> None:
+    shell = getattr(context, "conversation_shell", None)
+    if isinstance(shell, ttk.Frame):
+        try:
+            shell.pack_forget()
+        except Exception:
+            pass
+    _set_text_widget_quiet(getattr(context, "conversation_strategy_history_text", None), "", disabled=True)
+    _set_text_widget_quiet(getattr(context, "customer_data_call_entries_wrap", None), "", disabled=True)
+    _set_text_widget_quiet(getattr(context, "call_record_summary_text", None), "", disabled=True)
+    _set_text_widget_quiet(getattr(context, "dialog_intent_text", None), "", disabled=True)
+    _set_text_widget_quiet(getattr(context, "dialog_conversation_text", None), "", disabled=False)
+
+
+def _restore_active_tab_heavy_widgets(app, target) -> None:
+    shell = getattr(target, "conversation_shell", None)
+    if isinstance(shell, ttk.Frame):
+        try:
+            if not shell.winfo_manager():
+                shell.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
+        except Exception:
+            pass
+    try:
+        app._refresh_dialog_conversation_for_active_customer()
+    except Exception:
+        pass
+    try:
+        app._sync_dialog_intent_strategy_for_active_customer()
+    except Exception:
+        pass
+    try:
+        app._render_conversation_strategy_history_panel()
+    except Exception:
+        pass
+
+    active_page = str(getattr(target, "active_page", "profile") or "profile")
+    if active_page == "call_record":
+        try:
+            app._load_call_records_into_list(force_reload=False)
+        except Exception:
+            pass
+        try:
+            app._on_call_record_selected(apply_profile_and_workflow=False)
+        except Exception:
+            pass
+    elif active_page == "customer_data":
+        try:
+            app._load_customer_data_records_into_list(force_reload=False)
+        except Exception:
+            pass
+        try:
+            app._customer_data_last_render_key = ""
+            app._on_customer_data_record_selected()
+        except Exception:
+            pass
+
 def safe_set_profile_sash(
     app,
     panes: ttk.Panedwindow,
@@ -37,7 +289,12 @@ def safe_set_profile_sash(
     min_bottom: int = 170,
     force_initial: bool = False,
 ) -> None:
-    pane_height = panes.winfo_height()
+    try:
+        if int(panes.winfo_exists() or 0) != 1:
+            return
+        pane_height = panes.winfo_height()
+    except tk.TclError:
+        return
     if pane_height <= 0:
         return
     pane_key = str(panes)
@@ -73,25 +330,171 @@ def safe_set_profile_sash(
     initialized.add(pane_key)
 
 
+def _schedule_restore_customer_data_sash(app, context) -> None:
+    panes = getattr(context, "customer_data_panes", None)
+    saved_sash = int(getattr(context, "customer_data_list_sash", -1) or -1)
+    if not isinstance(panes, ttk.Panedwindow):
+        return
+
+    def _restore(_retries: int = 0) -> None:
+        try:
+            width = int(panes.winfo_width() or 0)
+            if width <= 0:
+                # 控件尚未可见，延迟重试；_ensure_customer_data_sash 会先设置默认值，
+                # 之后本函数重试再将其修正为保存值（若有）。
+                if _retries < 10:
+                    panes.after(100, lambda: _restore(_retries + 1))
+                return
+            screen_w = panes.winfo_screenwidth()
+            max_list_w = max(220, int(screen_w / 3))        # 最大 1/3 屏幕宽
+            default_sash = max(120, min(int(screen_w / 6), max_list_w))  # 默认 1/6 屏幕宽
+            target = default_sash if saved_sash < 0 else max(120, min(saved_sash, max_list_w))
+            # 将目标值写到 widget 属性，供 _apply_customer_data_sash 在页面切换时读取。
+            # 同时尝试直接写入（若控件已可见则立即生效；若隐藏则由 _apply 在 tkraise 后补写）。
+            panes._sash_target = target
+            panes.sashpos(0, target)
+            panes._sash_restore_done = True
+        except Exception:
+            return
+
+    app.after_idle(_restore)
+
+
+def _capture_current_bound_context_state(app, context) -> None:
+    _capture_current_workflow_doc(app, context)
+    tab_id = str(getattr(context, "tab_id", "") or "")
+    if tab_id:
+        try:
+            context.ui_snapshot = app._capture_conversation_tab_snapshot(tab_id)
+        except Exception:
+            pass
+    current_panes = getattr(context, "customer_data_panes", None)
+    if isinstance(current_panes, ttk.Panedwindow):
+        try:
+            current_sash = int(current_panes.sashpos(0))
+            screen_w = current_panes.winfo_screenwidth()
+            max_list_w = max(220, int(screen_w / 3))
+            if 120 <= current_sash <= max_list_w:
+                context.customer_data_list_sash = current_sash
+        except Exception:
+            pass
+    apply_call_record_state_to_context(context, build_call_record_state_from_app(app))
+    apply_customer_data_state_to_context(context, build_customer_data_state_from_app(app))
+    runtime_state = _capture_runtime_state(app)
+    context.runtime_state = dict(runtime_state)
+    context.conversation_strategy_history = runtime_state["conversation_strategy_history"]
+    context.conversation_customer_profile_history = runtime_state["conversation_customer_profile_history"]
+    context.conversation_intent_generator_history = runtime_state["conversation_intent_generator_history"]
+    context.dialog_conversation_history_by_customer = runtime_state["dialog_conversation_history_by_customer"]
+    context.dialog_conversation_active_customer_key = runtime_state["dialog_conversation_active_customer_key"]
+    context.customer_data_last_render_key = runtime_state["customer_data_last_render_key"]
+    context.dialog_agent_stream_active = runtime_state["dialog_agent_stream_active"]
+    context.dialog_agent_stream_content_start = runtime_state["dialog_agent_stream_content_start"]
+    context.dialog_intent_history = runtime_state["dialog_intent_history"]
+    context.dialog_intent_state_by_customer = runtime_state["dialog_intent_state_by_customer"]
+    context.current_session_customer_lines = runtime_state["current_session_customer_lines"]
+
+
+def unload_conversation_tab_ui(app, tab_id: str, *, capture_snapshot: bool = True) -> None:
+    context = app._conversation_tabs.get(tab_id)
+    if context is None or (not getattr(context, "ui_loaded", True)):
+        return
+    if capture_snapshot:
+        try:
+            context.ui_snapshot = app._capture_conversation_tab_snapshot(tab_id)
+        except Exception:
+            context.ui_snapshot = {}
+    context.ui_loaded = True
+
+
+def _mark_conversation_tab_recent(app, tab_id: str) -> None:
+    context = app._conversation_tabs.get(tab_id)
+    if context is None:
+        return
+    seq = int(getattr(app, "_conversation_tab_activation_seq", 0) or 0) + 1
+    app._conversation_tab_activation_seq = seq
+    context.last_activated_seq = seq
+
+
+def _prune_loaded_conversation_tabs(app, keep_tab_id: str, *, max_loaded_tabs: int = 4) -> None:
+    return
+
+
+def ensure_conversation_tab_ui_loaded(app, tab_id: str):
+    context = app._conversation_tabs.get(tab_id)
+    if context is None or getattr(context, "ui_loaded", True):
+        return context
+    previous_data_override = app._tab_data_dir_override
+    app._tab_data_dir_override = context.data_dir if isinstance(context.data_dir, Path) else None
+    try:
+        rebuilt = app._build_conversation_tab(
+            parent=context.tab_frame,
+            panel_bg="#f3f7fc",
+            tab_title=context.title,
+            command_value=context.conversation_command_var.get(),
+            env_value=context.conversation_server_env_var.get(),
+            tab_id_override=tab_id,
+        )
+    finally:
+        app._tab_data_dir_override = previous_data_override
+
+    rebuilt.data_dir = context.data_dir
+    rebuilt.customer_data_list_sash = context.customer_data_list_sash
+    apply_call_record_state_to_context(rebuilt, build_call_record_state_from_context(context))
+    apply_customer_data_state_to_context(rebuilt, build_customer_data_state_from_context(context))
+    rebuilt.runtime_state = dict(getattr(context, "runtime_state", {}) or {})
+    rebuilt.conversation_strategy_history = list(getattr(context, "conversation_strategy_history", []) or [])
+    rebuilt.conversation_customer_profile_history = list(getattr(context, "conversation_customer_profile_history", []) or [])
+    rebuilt.conversation_intent_generator_history = list(getattr(context, "conversation_intent_generator_history", []) or [])
+    rebuilt.dialog_conversation_history_by_customer = dict(getattr(context, "dialog_conversation_history_by_customer", {}) or {})
+    rebuilt.dialog_conversation_active_customer_key = str(getattr(context, "dialog_conversation_active_customer_key", "") or "")
+    rebuilt.customer_data_last_render_key = str(getattr(context, "customer_data_last_render_key", "") or "")
+    rebuilt.dialog_agent_stream_active = bool(getattr(context, "dialog_agent_stream_active", False))
+    rebuilt.dialog_agent_stream_content_start = str(getattr(context, "dialog_agent_stream_content_start", "") or "")
+    rebuilt.dialog_intent_history = list(getattr(context, "dialog_intent_history", []) or [])
+    rebuilt.dialog_intent_state_by_customer = dict(getattr(context, "dialog_intent_state_by_customer", {}) or {})
+    rebuilt.current_session_customer_lines = list(getattr(context, "current_session_customer_lines", []) or [])
+    rebuilt.workflow_doc = dict(_normalize_workflow_doc(getattr(context, "workflow_doc", {})))
+    rebuilt.active_page = context.active_page
+    rebuilt.ui_snapshot = dict(context.ui_snapshot)
+    rebuilt.ui_loaded = True
+    rebuilt.ui_needs_restore = True
+
+    app._register_conversation_tab_context(rebuilt, is_template=(tab_id == app._conversation_template_tab_id))
+    return rebuilt
+
+
 def bind_conversation_tab_context(app, tab_id: str) -> bool:
+    started_at = perf_counter()
     if tab_id == app._bound_conversation_tab_id:
+        current = app._conversation_tabs.get(tab_id)
+        if current is not None:
+            current = ensure_conversation_tab_ui_loaded(app, tab_id)
+            _schedule_restore_customer_data_sash(app, current)
+        _log_tab_switch_timing(app, "bind.same_tab", started_at, extra=f"tab_id={tab_id}")
         return True
     target = app._conversation_tabs.get(tab_id)
     if target is None:
+        _log_tab_switch_timing(app, "bind.missing_tab", started_at, extra=f"tab_id={tab_id}")
         return False
     current_id = app._bound_conversation_tab_id
     if current_id:
         current = app._conversation_tabs.get(current_id)
         if current is not None:
+            _capture_current_bound_context_state(app, current)
+            _hibernate_inactive_tab_widgets(current)
             current_panes = getattr(current, "customer_data_panes", None)
             if isinstance(current_panes, ttk.Panedwindow):
                 try:
-                    current.customer_data_list_sash = int(current_panes.sashpos(0))
+                    current_sash = int(current_panes.sashpos(0))
+                    screen_w = current_panes.winfo_screenwidth()
+                    max_list_w = max(220, int(screen_w / 3))  # 最大 1/3 屏幕宽
+                    if 120 <= current_sash <= max_list_w:
+                        current.customer_data_list_sash = current_sash
                 except Exception:
                     pass
-            current.call_record_item_by_iid = app._call_record_item_by_iid
-            current.customer_data_customer_by_iid = app._customer_data_customer_by_iid
-            current.customer_data_case_cache_by_name = app._customer_data_case_cache_by_name
+            apply_call_record_state_to_context(current, build_call_record_state_from_app(app))
+            apply_customer_data_state_to_context(current, build_customer_data_state_from_app(app))
             current.conversation_strategy_history = app._conversation_strategy_history
             current.conversation_customer_profile_history = app._conversation_customer_profile_history
             current.conversation_intent_generator_history = app._conversation_intent_generator_history
@@ -100,9 +503,30 @@ def bind_conversation_tab_context(app, tab_id: str) -> bool:
             current.customer_data_last_render_key = app._customer_data_last_render_key
             current.dialog_agent_stream_active = app._dialog_agent_stream_active
             current.dialog_agent_stream_content_start = app._dialog_agent_stream_content_start
-            current.dialog_intent_history = list(getattr(app, "_dialog_intent_history", []) or [])
-            current.dialog_intent_state_by_customer = dict(getattr(app, "_dialog_intent_state_by_customer", {}) or {})
-            current.current_session_customer_lines = list(getattr(app, "_current_session_customer_lines", []) or [])
+            # 使用引用赋值而非拷贝：restore 步骤已为新 Tab 创建独立副本，
+            # 保存旧 Tab 状态只需记住当前对象引用即可，无需额外拷贝。
+            current.dialog_intent_history = app._dialog_intent_history
+            current.dialog_intent_state_by_customer = app._dialog_intent_state_by_customer
+            current.current_session_customer_lines = app._current_session_customer_lines
+            current_runtime_state = _capture_runtime_state(app)
+            current.runtime_state = dict(current_runtime_state)
+            current.conversation_strategy_history = current_runtime_state["conversation_strategy_history"]
+            current.conversation_customer_profile_history = current_runtime_state["conversation_customer_profile_history"]
+            current.conversation_intent_generator_history = current_runtime_state["conversation_intent_generator_history"]
+            current.dialog_conversation_history_by_customer = current_runtime_state["dialog_conversation_history_by_customer"]
+            current.dialog_conversation_active_customer_key = current_runtime_state["dialog_conversation_active_customer_key"]
+            current.customer_data_last_render_key = current_runtime_state["customer_data_last_render_key"]
+            current.dialog_agent_stream_active = current_runtime_state["dialog_agent_stream_active"]
+            current.dialog_agent_stream_content_start = current_runtime_state["dialog_agent_stream_content_start"]
+            current.dialog_intent_history = current_runtime_state["dialog_intent_history"]
+            current.dialog_intent_state_by_customer = current_runtime_state["dialog_intent_state_by_customer"]
+            current.current_session_customer_lines = current_runtime_state["current_session_customer_lines"]
+            current.workflow_doc = dict(_normalize_workflow_doc(getattr(app, "_workflow_doc", {})))
+
+    target = ensure_conversation_tab_ui_loaded(app, tab_id)
+    if target is None:
+        _log_tab_switch_timing(app, "bind.load_failed", started_at, extra=f"tab_id={tab_id}")
+        return False
 
     app.conversation_command_var = target.conversation_command_var
     app.conversation_server_env_var = target.conversation_server_env_var
@@ -123,10 +547,11 @@ def bind_conversation_tab_context(app, tab_id: str) -> bool:
     app.dialog_billing_table = target.dialog_billing_table
     app.dialog_intent_queue_text = target.dialog_intent_queue_text
     app.dialog_strategy_text = target.dialog_strategy_text
-    app._dialog_intent_history = list(getattr(target, "dialog_intent_history", []) or [])
-    app._dialog_intent_state_by_customer = dict(getattr(target, "dialog_intent_state_by_customer", {}) or {})
+    runtime_state = _apply_runtime_state_to_app(app, getattr(target, "runtime_state", {}))
+    app._dialog_intent_history = list(runtime_state["dialog_intent_history"])
+    app._dialog_intent_state_by_customer = dict(runtime_state["dialog_intent_state_by_customer"])
     app._dialog_intent_state_current_customer_key = ""
-    app._current_session_customer_lines = list(getattr(target, "current_session_customer_lines", []) or [])
+    app._current_session_customer_lines = list(runtime_state["current_session_customer_lines"])
     app.conversation_workflow_text = target.conversation_workflow_text
     app.conversation_strategy_history_text = target.conversation_strategy_history_text
     app.conversation_strategy_input_text = target.conversation_strategy_input_text
@@ -136,6 +561,7 @@ def bind_conversation_tab_context(app, tab_id: str) -> bool:
     app.conversation_pending_items_prompt_text = target.conversation_pending_items_prompt_text
     app.conversation_summary_prompt_text = target.conversation_summary_prompt_text
     app.conversation_strategy_prompt_text = target.conversation_strategy_prompt_text
+    app._workflow_doc = dict(_normalize_workflow_doc(getattr(target, "workflow_doc", {})))
     # Legacy aliases: settings-page editors were removed; bind old fields to active conversation editors.
     app.customer_profile_text = target.conversation_customer_profile_text
     app.workflow_text = target.conversation_workflow_text
@@ -151,40 +577,80 @@ def bind_conversation_tab_context(app, tab_id: str) -> bool:
     app.customer_data_calls_container = target.customer_data_calls_container
     app.customer_data_call_entries_wrap = target.customer_data_call_entries_wrap
     app._conversation_page_switcher = target.conversation_page_switcher
-    app._call_record_item_by_iid = target.call_record_item_by_iid
-    app._customer_data_customer_by_iid = target.customer_data_customer_by_iid
-    app._customer_data_case_cache_by_name = target.customer_data_case_cache_by_name
-    app._conversation_strategy_history = target.conversation_strategy_history
-    app._conversation_customer_profile_history = target.conversation_customer_profile_history
-    app._conversation_intent_generator_history = target.conversation_intent_generator_history
-    app._dialog_conversation_history_by_customer = target.dialog_conversation_history_by_customer
-    app._dialog_conversation_active_customer_key = target.dialog_conversation_active_customer_key
-    app._customer_data_last_render_key = target.customer_data_last_render_key
-    app._dialog_agent_stream_active = target.dialog_agent_stream_active
-    app._dialog_agent_stream_content_start = target.dialog_agent_stream_content_start
+    apply_call_record_state_to_app(app, build_call_record_state_from_context(target))
+    apply_customer_data_state_to_app(app, build_customer_data_state_from_context(target))
+    app._conversation_strategy_history = runtime_state["conversation_strategy_history"]
+    app._conversation_customer_profile_history = runtime_state["conversation_customer_profile_history"]
+    app._conversation_intent_generator_history = runtime_state["conversation_intent_generator_history"]
+    app._dialog_conversation_history_by_customer = runtime_state["dialog_conversation_history_by_customer"]
+    app._dialog_conversation_active_customer_key = runtime_state["dialog_conversation_active_customer_key"]
+    app._customer_data_last_render_key = runtime_state["customer_data_last_render_key"]
+    app._dialog_agent_stream_active = runtime_state["dialog_agent_stream_active"]
+    app._dialog_agent_stream_content_start = runtime_state["dialog_agent_stream_content_start"]
     app._bound_conversation_tab_id = tab_id
     app._active_conversation_tab_id = tab_id
-    # 提示词模板控件在每个 Tab 创建时已初始化，切换 Tab 时不重置内容，
-    # 保持与系统指令控件相同的行为（避免光标被移位）。
-    app._render_conversation_strategy_history_panel()
-    app._sync_dialog_intent_strategy_for_active_customer()
-    app._refresh_dialog_intent_queue_view()
-
-    target_panes = getattr(target, "customer_data_panes", None)
-    target_sash = int(getattr(target, "customer_data_list_sash", -1) or -1)
-    if isinstance(target_panes, ttk.Panedwindow) and target_sash >= 0:
-        def _restore_customer_data_sash() -> None:
+    _mark_conversation_tab_recent(app, tab_id)
+    if getattr(target, "ui_needs_restore", False):
+        snapshot = dict(getattr(target, "ui_snapshot", {}) or {})
+        target.ui_needs_restore = False
+        if snapshot:
+            app._apply_conversation_tab_snapshot(tab_id, snapshot)
+        else:
+            _apply_workflow_doc_to_widgets(app, getattr(target, "workflow_doc", {}))
+        switcher = target.conversation_page_switcher
+        if callable(switcher):
             try:
-                width = int(target_panes.winfo_width() or 0)
-                if width <= 0:
-                    return
-                # Keep a small visible area for the right panel.
-                clamped = max(120, min(target_sash, max(180, width - 220)))
-                target_panes.sashpos(0, clamped)
+                switcher(target.active_page or "profile")
             except Exception:
-                return
+                switcher("profile")
+        _restore_active_tab_heavy_widgets(app, target)
+    else:
+        _restore_active_tab_heavy_widgets(app, target)
+    # 意图历史状态已在上方 lines 163-166 从 target context 恢复到 app.*，
+    # 控件刷新（Treeview / Text 重绘）改为延迟一帧执行，让 Tab 的视觉切换先完成。
+    # 快速连续切 Tab 时取消上一次未执行的同步，只保留最新一次。
+    _pending_intent = getattr(app, "_intent_sync_after_id", None)
+    app._intent_sync_after_id = None
+    if _pending_intent is not None:
+        try:
+            app.after_cancel(_pending_intent)
+        except Exception:
+            pass
 
-        app.after_idle(_restore_customer_data_sash)
+    def _deferred_intent_sync() -> None:
+        app._intent_sync_after_id = None
+        try:
+            app._sync_dialog_intent_strategy_for_active_customer()
+            # _sync 函数内部会替换 app._dialog_intent_history 为新 list，
+            # 需要把最新引用写回当前 Tab 的 context，确保下次切走时保存的是最新数据。
+            _tab = app._conversation_tabs.get(app._active_conversation_tab_id)
+            if _tab is not None:
+                _tab.dialog_intent_history = app._dialog_intent_history
+                _tab.dialog_intent_state_by_customer = app._dialog_intent_state_by_customer
+        except Exception:
+            pass
+
+    app._intent_sync_after_id = None
+
+    # 策略历史面板渲染（可能含大量文本，耗时明显）使用 after_cancel 去重：
+    # 快速连续切 Tab 时，取消上一次尚未执行的渲染，只保留最后一次。
+    # 用 after(50) 而非 after_idle，确保新 Toplevel 的 Map/Paint 事件
+    # 能在此回调之前被事件循环处理，避免窗口出现延迟。
+    _pending = getattr(app, "_strategy_history_render_after_id", None)
+    if _pending is not None:
+        try:
+            app.after_cancel(_pending)
+        except Exception:
+            pass
+
+    def _deferred_render() -> None:
+        app._strategy_history_render_after_id = None
+        app._render_conversation_strategy_history_panel()
+
+    app._strategy_history_render_after_id = None
+
+    _schedule_restore_customer_data_sash(app, target)
+    _prune_loaded_conversation_tabs(app, tab_id)
 
     sync_status = getattr(app, "_sync_conversation_profile_status", None)
     if callable(sync_status):
@@ -192,6 +658,20 @@ def bind_conversation_tab_context(app, tab_id: str) -> bool:
             sync_status()
         except Exception:
             pass
+    active_page = str(getattr(target, "active_page", "profile") or "profile")
+    data_dir_text = ""
+    try:
+        if isinstance(getattr(target, "data_dir", None), Path):
+            data_dir_text = str(target.data_dir.resolve())
+    except Exception:
+        data_dir_text = str(getattr(target, "data_dir", "") or "")
+    _log_tab_context_debug(
+        app,
+        f"bind completed visible={tab_id} bound={app._bound_conversation_tab_id} "
+        f"active={app._active_conversation_tab_id} runtime={getattr(app, '_runtime_conversation_tab_id', '') or '-'} "
+        f"title={getattr(target, 'title', '') or '-'} page={active_page} data_dir={data_dir_text or '-'}",
+    )
+    _log_tab_switch_timing(app, "bind.completed", started_at, extra=f"tab_id={tab_id} page={active_page}")
     return True
 
 
@@ -209,16 +689,83 @@ def using_conversation_tab_context(app, tab_id: str) -> Iterator[None]:
 
 
 def on_main_notebook_tab_changed(app, _event=None) -> None:
+    started_at = perf_counter()
     notebook = app._main_notebook
     if not isinstance(notebook, ttk.Notebook):
+        return
+    if bool(getattr(app, "_tab_switch_freeze_internal", False)):
         return
     selected_tab_name = str(notebook.select() or "")
     if not selected_tab_name:
         return
+    if _should_warn_summary_pending_on_tab_switch(app, selected_tab_name):
+        allow_switch = _show_summary_pending_switch_dialog(app)
+        if not allow_switch:
+            current_tab_id = str(getattr(app, "_bound_conversation_tab_id", "") or "")
+            current_context = app._conversation_tabs.get(current_tab_id) if current_tab_id else None
+            try:
+                app._tab_switch_freeze_internal = True
+                if current_context is not None:
+                    notebook.select(current_context.tab_frame)
+            except Exception:
+                pass
+            finally:
+                app._tab_switch_freeze_internal = False
+            return
     tab_id = app._conversation_tab_id_by_frame_name.get(selected_tab_name)
     if not tab_id:
         return
+    if _is_tab_switch_locked(app):
+        locked_tab_id = _get_locked_conversation_tab_id(app)
+        if locked_tab_id and (tab_id != locked_tab_id):
+            locked_context = app._conversation_tabs.get(locked_tab_id)
+            locked_frame = getattr(locked_context, "tab_frame", None)
+            if locked_frame is not None:
+                try:
+                    app._tab_switch_freeze_internal = True
+                    notebook.select(locked_frame)
+                except Exception:
+                    pass
+                finally:
+                    app._tab_switch_freeze_internal = False
+            if not bool(getattr(app, "_tab_switch_freeze_notice_shown", False)):
+                app._tab_switch_freeze_notice_shown = True
+                title = str(getattr(locked_context, "title", "") or locked_tab_id)
+                try:
+                    messagebox.showwarning("通话进行中", f"当前正在通话，不能切换TAB页。\n\n当前通话TAB：{title}")
+                except Exception:
+                    pass
+            _log_tab_context_debug(
+                app,
+                f"tab-switch blocked selected={tab_id} locked={locked_tab_id} "
+                f"runtime={getattr(app, '_runtime_conversation_tab_id', '') or '-'}",
+            )
+            _log_tab_switch_timing(app, "notebook.blocked", started_at, extra=f"selected={tab_id} locked={locked_tab_id}")
+            return
     app._bind_conversation_tab_context(tab_id)
+    target = app._conversation_tabs.get(tab_id)
+    active_page = str(getattr(target, "active_page", "profile") or "profile")
+    data_dir_text = ""
+    try:
+        if target is not None and isinstance(getattr(target, "data_dir", None), Path):
+            data_dir_text = str(target.data_dir.resolve())
+    except Exception:
+        data_dir_text = str(getattr(target, "data_dir", "") or "")
+    _log_tab_context_debug(
+        app,
+        f"notebook changed visible={tab_id} bound={getattr(app, '_bound_conversation_tab_id', '') or '-'} "
+        f"active={getattr(app, '_active_conversation_tab_id', '') or '-'} "
+        f"runtime={getattr(app, '_runtime_conversation_tab_id', '') or '-'} "
+        f"title={getattr(target, 'title', '') if target is not None else '-'} "
+        f"page={active_page} data_dir={data_dir_text or '-'}",
+    )
+    _log_tab_switch_timing(app, "notebook.changed", started_at, extra=f"tab_id={tab_id} page={active_page}")
+    try:
+        app.after_idle(lambda _sid=started_at, _tab_id=tab_id, _page=active_page: _log_tab_switch_timing(app, "notebook.after_idle", _sid, extra=f"tab_id={_tab_id} page={_page}"))
+        app.after(16, lambda _sid=started_at, _tab_id=tab_id, _page=active_page: _log_tab_switch_timing(app, "notebook.after16", _sid, extra=f"tab_id={_tab_id} page={_page}"))
+        app.after(60, lambda _sid=started_at, _tab_id=tab_id, _page=active_page: _log_tab_switch_timing(app, "notebook.after60", _sid, extra=f"tab_id={_tab_id} page={_page}"))
+    except Exception:
+        pass
 
 
 def build_unique_conversation_tab_title(app, base_title: str) -> str:
@@ -238,6 +785,8 @@ def capture_conversation_tab_snapshot(app, tab_id: str) -> dict[str, str]:
     if tab_id not in app._conversation_tabs:
         return {}
     with app._using_conversation_tab_context(tab_id):
+        context = app._conversation_tabs.get(tab_id)
+        workflow_doc = _capture_current_workflow_doc(app, context)
         sync_fn = getattr(app, "_sync_dialog_intent_strategy_for_active_customer", None)
         if callable(sync_fn):
             try:
@@ -257,31 +806,11 @@ def capture_conversation_tab_snapshot(app, tab_id: str) -> dict[str, str]:
             except Exception:
                 conversation_text = ""
         dialog_intent_text = app.dialog_intent_text.get("1.0", "end-1c") if isinstance(app.dialog_intent_text, ScrolledText) else ""
-        system_text = (
-            app.conversation_system_instruction_text.get("1.0", "end-1c")
-            if isinstance(app.conversation_system_instruction_text, ScrolledText)
-            else ""
-        )
-        intent_text = (
-            app.conversation_intent_text.get("1.0", "end-1c")
-            if isinstance(app.conversation_intent_text, ScrolledText)
-            else ""
-        )
-        workflow_profile_text = (
-            app.conversation_customer_profile_text.get("1.0", "end-1c")
-            if isinstance(app.conversation_customer_profile_text, ScrolledText)
-            else ""
-        )
-        strategy_text = (
-            app.conversation_workflow_text.get("1.0", "end-1c")
-            if isinstance(app.conversation_workflow_text, ScrolledText)
-            else ""
-        )
-        strategy_input_text = (
-            app.conversation_strategy_input_text.get("1.0", "end-1c")
-            if isinstance(app.conversation_strategy_input_text, tk.Text)
-            else ""
-        )
+        system_text = workflow_doc["system_instruction"]
+        intent_text = workflow_doc["intent"]
+        workflow_profile_text = workflow_doc["workflow_profile"]
+        strategy_text = workflow_doc["strategy"]
+        strategy_input_text = workflow_doc["strategy_input"]
         strategy_history_json = json.dumps(app._conversation_strategy_history, ensure_ascii=False)
         profile_history_json = json.dumps(app._conversation_customer_profile_history, ensure_ascii=False)
         intent_history_json = json.dumps(app._conversation_intent_generator_history, ensure_ascii=False)
@@ -294,21 +823,9 @@ def capture_conversation_tab_snapshot(app, tab_id: str) -> dict[str, str]:
             list(getattr(app, "_current_session_customer_lines", []) or []),
             ensure_ascii=False,
         )
-        summary_prompt = (
-            app.conversation_summary_prompt_text.get("1.0", "end-1c")
-            if isinstance(app.conversation_summary_prompt_text, ScrolledText)
-            else ""
-        )
-        pending_items_prompt = (
-            app.conversation_pending_items_prompt_text.get("1.0", "end-1c")
-            if isinstance(app.conversation_pending_items_prompt_text, ScrolledText)
-            else ""
-        )
-        strategy_prompt = (
-            app.conversation_strategy_prompt_text.get("1.0", "end-1c")
-            if isinstance(app.conversation_strategy_prompt_text, ScrolledText)
-            else ""
-        )
+        summary_prompt = workflow_doc["dialog_summary_prompt"]
+        pending_items_prompt = workflow_doc["pending_items_prompt"]
+        strategy_prompt = workflow_doc["dialog_strategy_prompt"]
         return {
             "command": app.conversation_command_var.get(),
             "env": app.conversation_server_env_var.get(),
@@ -340,6 +857,7 @@ def apply_conversation_tab_snapshot(
     if (not snapshot) or (tab_id not in app._conversation_tabs):
         return
     with app._using_conversation_tab_context(tab_id):
+        context = app._conversation_tabs.get(tab_id)
         app.conversation_command_var.set(snapshot.get("command", app.conversation_command_var.get()))
         env_text = (snapshot.get("env", app.conversation_server_env_var.get()) or "").strip().lower()
         if env_text not in {"local", "public"}:
@@ -397,26 +915,22 @@ def apply_conversation_tab_snapshot(
                 }
         app._dialog_intent_state_current_customer_key = ""
         app._current_session_customer_lines = current_session_customer_lines_items
-        context = app._conversation_tabs.get(tab_id)
         if context is not None:
             context.dialog_intent_history = list(dialog_intent_history_items)
             context.dialog_intent_state_by_customer = dict(app._dialog_intent_state_by_customer)
             context.current_session_customer_lines = list(current_session_customer_lines_items)
         app._sync_dialog_intent_strategy_for_active_customer()
         app._refresh_dialog_intent_queue_view()
-        if isinstance(app.conversation_system_instruction_text, ScrolledText):
-            app._set_text_content(app.conversation_system_instruction_text, snapshot.get("system_instruction", ""))
-        if isinstance(app.conversation_intent_text, ScrolledText):
-            app._set_text_content(app.conversation_intent_text, snapshot.get("intent", ""))
-        if isinstance(app.conversation_customer_profile_text, ScrolledText):
-            app._set_text_content(app.conversation_customer_profile_text, snapshot.get("workflow_profile", ""))
-        if isinstance(app.conversation_workflow_text, ScrolledText):
-            app._set_text_content(app.conversation_workflow_text, snapshot.get("strategy", ""))
-        if isinstance(app.conversation_pending_items_prompt_text, ScrolledText):
-            app._set_text_content(app.conversation_pending_items_prompt_text, snapshot.get("pending_items_prompt", ""))
+        workflow_doc = _normalize_workflow_doc(getattr(context, "workflow_doc", {}))
+        for key in _WORKFLOW_DOC_KEYS:
+            snapshot_value = str(snapshot.get(key, "") or "")
+            if snapshot_value:
+                workflow_doc[key] = snapshot_value
+        if context is not None:
+            context.workflow_doc = dict(workflow_doc)
+            context.workflow_doc_dirty = False
+        _apply_workflow_doc_to_widgets(app, workflow_doc)
         if isinstance(app.conversation_strategy_input_text, tk.Text):
-            app.conversation_strategy_input_text.delete("1.0", "end")
-            app.conversation_strategy_input_text.insert("1.0", snapshot.get("strategy_input", ""))
             app.conversation_strategy_input_text.event_generate("<KeyRelease>")
         history_raw = snapshot.get("strategy_history", "")
         history_items: list[dict[str, str]] = []
@@ -479,14 +993,10 @@ def apply_conversation_tab_snapshot(
                 intent_history_items = []
         app._conversation_intent_generator_history.clear()
         app._conversation_intent_generator_history.extend(intent_history_items)
+        if context is not None:
+            context.runtime_state = _capture_runtime_state(app)
         if isinstance(app.dialog_profile_table, ttk.Treeview):
             app._fill_profile_table_from_text(app.dialog_profile_table, snapshot.get("profile", ""), auto_height=True)
-        summary_prompt = str(snapshot.get("dialog_summary_prompt", "") or "").strip()
-        if isinstance(app.conversation_summary_prompt_text, ScrolledText):
-            app._set_text_content(app.conversation_summary_prompt_text, summary_prompt)
-        strategy_prompt = str(snapshot.get("dialog_strategy_prompt", "") or "").strip()
-        if isinstance(app.conversation_strategy_prompt_text, ScrolledText):
-            app._set_text_content(app.conversation_strategy_prompt_text, strategy_prompt)
         app._sync_conversation_server_env_from_command(app.conversation_command_var.get().strip())
 
 
@@ -509,12 +1019,37 @@ def refresh_conversation_tab_registry_view(app) -> None:
             display_dir = str(data_dir.resolve().relative_to(app._workspace_dir.resolve()))
         except Exception:
             pass
+        display_title = f"{context.title} *" if bool(getattr(context, "workflow_doc_dirty", False)) else context.title
         iid = f"tab_{idx}"
-        tree.insert("", "end", iid=iid, values=(context.title, display_dir))
+        tree.insert("", "end", iid=iid, values=(display_title, display_dir))
         app._conversation_tab_registry_iid_to_tab_id[iid] = tab_id
 
 
 def get_conversation_tab_snapshot_path(app, tab_id: str) -> Path | None:
+    context = app._conversation_tabs.get(tab_id)
+    if context is None:
+        return None
+    data_dir = context.data_dir if isinstance(context.data_dir, Path) else (app._workspace_dir / "Data")
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return None
+    return data_dir / "_ui_tab_state.json"
+
+
+def _get_conversation_tab_workflow_snapshot_path(app, tab_id: str) -> Path | None:
+    context = app._conversation_tabs.get(tab_id)
+    if context is None:
+        return None
+    data_dir = context.data_dir if isinstance(context.data_dir, Path) else (app._workspace_dir / "Data")
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return None
+    return data_dir / "_ui_tab_workflow.json"
+
+
+def _get_legacy_conversation_tab_snapshot_path(app, tab_id: str) -> Path | None:
     context = app._conversation_tabs.get(tab_id)
     if context is None:
         return None
@@ -540,38 +1075,296 @@ _SNAPSHOT_PERSIST_KEYS = (
     "dialog_strategy_prompt",# 策略提示词模板
 )
 
+_WORKFLOW_PERSIST_KEYS = (
+    "system_instruction",
+    "strategy",
+    "intent",
+    "workflow_profile",
+    "pending_items_prompt",
+    "dialog_summary_prompt",
+    "dialog_strategy_prompt",
+)
 
-def save_persisted_conversation_tab_snapshots(app) -> None:
-    """将每个 Tab 的配置型字段写入各自的 _ui_tab_snapshot.json，供下次启动恢复。"""
-    for tab_id, context in app._conversation_tabs.items():
-        snapshot_path = app._get_conversation_tab_snapshot_path(tab_id)
-        if snapshot_path is None:
-            continue
-        with app._using_conversation_tab_context(tab_id):
-            full_snapshot = app._capture_conversation_tab_snapshot(tab_id)
-        persist_data = {k: full_snapshot.get(k, "") for k in _SNAPSHOT_PERSIST_KEYS}
+_WORKFLOW_DOC_KEYS = (
+    "system_instruction",
+    "intent",
+    "workflow_profile",
+    "strategy",
+    "strategy_input",
+    "pending_items_prompt",
+    "dialog_summary_prompt",
+    "dialog_strategy_prompt",
+)
+
+
+def _normalize_workflow_doc(raw: object) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        return {key: "" for key in _WORKFLOW_DOC_KEYS}
+    return {key: str(raw.get(key, "") or "") for key in _WORKFLOW_DOC_KEYS}
+
+
+def _read_workflow_doc_from_widgets(app) -> dict[str, str]:
+    def _read(widget) -> str:
         try:
-            snapshot_path.parent.mkdir(parents=True, exist_ok=True)
-            snapshot_path.write_text(
-                json.dumps(persist_data, ensure_ascii=False, indent=2),
+            return widget.get("1.0", "end-1c") if widget is not None else ""
+        except Exception:
+            return ""
+
+    return {
+        "system_instruction": _read(getattr(app, "conversation_system_instruction_text", None)),
+        "intent": _read(getattr(app, "conversation_intent_text", None)),
+        "workflow_profile": _read(getattr(app, "conversation_customer_profile_text", None)),
+        "strategy": _read(getattr(app, "conversation_workflow_text", None)),
+        "strategy_input": _read(getattr(app, "conversation_strategy_input_text", None)),
+        "pending_items_prompt": _read(getattr(app, "conversation_pending_items_prompt_text", None)),
+        "dialog_summary_prompt": _read(getattr(app, "conversation_summary_prompt_text", None)),
+        "dialog_strategy_prompt": _read(getattr(app, "conversation_strategy_prompt_text", None)),
+    }
+
+
+def _capture_current_workflow_doc(app, context=None) -> dict[str, str]:
+    workflow_doc = _normalize_workflow_doc(_read_workflow_doc_from_widgets(app))
+    app._workflow_doc = dict(workflow_doc)
+    if context is not None:
+        context.workflow_doc = dict(workflow_doc)
+    return workflow_doc
+
+
+def _capture_runtime_state(app) -> dict[str, object]:
+    runtime_state = {
+        "conversation_strategy_history": list(getattr(app, "_conversation_strategy_history", []) or []),
+        "conversation_customer_profile_history": list(getattr(app, "_conversation_customer_profile_history", []) or []),
+        "conversation_intent_generator_history": list(getattr(app, "_conversation_intent_generator_history", []) or []),
+        "dialog_conversation_history_by_customer": dict(getattr(app, "_dialog_conversation_history_by_customer", {}) or {}),
+        "dialog_conversation_active_customer_key": str(getattr(app, "_dialog_conversation_active_customer_key", "") or ""),
+        "customer_data_last_render_key": str(getattr(app, "_customer_data_last_render_key", "") or ""),
+        "dialog_agent_stream_active": bool(getattr(app, "_dialog_agent_stream_active", False)),
+        "dialog_agent_stream_content_start": str(getattr(app, "_dialog_agent_stream_content_start", "") or ""),
+        "dialog_intent_history": list(getattr(app, "_dialog_intent_history", []) or []),
+        "dialog_intent_state_by_customer": dict(getattr(app, "_dialog_intent_state_by_customer", {}) or {}),
+        "current_session_customer_lines": list(getattr(app, "_current_session_customer_lines", []) or []),
+    }
+    return runtime_state
+
+
+def _apply_runtime_state_to_app(app, runtime_state: object) -> dict[str, object]:
+    source = runtime_state if isinstance(runtime_state, dict) else {}
+    normalized = {
+        "conversation_strategy_history": list(source.get("conversation_strategy_history", []) or []),
+        "conversation_customer_profile_history": list(source.get("conversation_customer_profile_history", []) or []),
+        "conversation_intent_generator_history": list(source.get("conversation_intent_generator_history", []) or []),
+        "dialog_conversation_history_by_customer": dict(source.get("dialog_conversation_history_by_customer", {}) or {}),
+        "dialog_conversation_active_customer_key": str(source.get("dialog_conversation_active_customer_key", "") or ""),
+        "customer_data_last_render_key": str(source.get("customer_data_last_render_key", "") or ""),
+        "dialog_agent_stream_active": bool(source.get("dialog_agent_stream_active", False)),
+        "dialog_agent_stream_content_start": str(source.get("dialog_agent_stream_content_start", "") or ""),
+        "dialog_intent_history": list(source.get("dialog_intent_history", []) or []),
+        "dialog_intent_state_by_customer": dict(source.get("dialog_intent_state_by_customer", {}) or {}),
+        "current_session_customer_lines": list(source.get("current_session_customer_lines", []) or []),
+    }
+    app._conversation_runtime_state = dict(normalized)
+    app._conversation_strategy_history = normalized["conversation_strategy_history"]
+    app._conversation_customer_profile_history = normalized["conversation_customer_profile_history"]
+    app._conversation_intent_generator_history = normalized["conversation_intent_generator_history"]
+    app._dialog_conversation_history_by_customer = normalized["dialog_conversation_history_by_customer"]
+    app._dialog_conversation_active_customer_key = normalized["dialog_conversation_active_customer_key"]
+    app._customer_data_last_render_key = normalized["customer_data_last_render_key"]
+    app._dialog_agent_stream_active = normalized["dialog_agent_stream_active"]
+    app._dialog_agent_stream_content_start = normalized["dialog_agent_stream_content_start"]
+    app._dialog_intent_history = normalized["dialog_intent_history"]
+    app._dialog_intent_state_by_customer = normalized["dialog_intent_state_by_customer"]
+    app._current_session_customer_lines = normalized["current_session_customer_lines"]
+    return normalized
+
+
+def _apply_workflow_doc_to_widgets(app, workflow_doc: object) -> None:
+    doc = _normalize_workflow_doc(workflow_doc)
+    app._workflow_doc = dict(doc)
+    if isinstance(app.conversation_system_instruction_text, ScrolledText):
+        app._set_text_content(app.conversation_system_instruction_text, doc["system_instruction"])
+    if isinstance(app.conversation_intent_text, ScrolledText):
+        app._set_text_content(app.conversation_intent_text, doc["intent"])
+    if isinstance(app.conversation_customer_profile_text, ScrolledText):
+        app._set_text_content(app.conversation_customer_profile_text, doc["workflow_profile"])
+    if isinstance(app.conversation_workflow_text, ScrolledText):
+        app._set_text_content(app.conversation_workflow_text, doc["strategy"])
+    if isinstance(app.conversation_pending_items_prompt_text, ScrolledText):
+        app._set_text_content(app.conversation_pending_items_prompt_text, doc["pending_items_prompt"])
+    if isinstance(app.conversation_summary_prompt_text, ScrolledText):
+        app._set_text_content(app.conversation_summary_prompt_text, doc["dialog_summary_prompt"])
+    if isinstance(app.conversation_strategy_prompt_text, ScrolledText):
+        app._set_text_content(app.conversation_strategy_prompt_text, doc["dialog_strategy_prompt"])
+    if isinstance(app.conversation_strategy_input_text, tk.Text):
+        app.conversation_strategy_input_text.delete("1.0", "end")
+        app.conversation_strategy_input_text.insert("1.0", doc["strategy_input"])
+
+
+def _normalize_persisted_snapshot(raw: object, keys: tuple[str, ...]) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, str] = {}
+    for key in keys:
+        normalized[key] = str(raw.get(key, "") or "")
+    return normalized
+
+
+def _read_json_file_with_fallbacks(path: Path | None) -> object:
+    if not (isinstance(path, Path) and path.exists()):
+        return None
+    for encoding in ("utf-8", "utf-8-sig", "gb18030"):
+        try:
+            return json.loads(path.read_text(encoding=encoding))
+        except Exception:
+            continue
+    return None
+
+
+def _read_persisted_conversation_tab_snapshot_bundle(app, tab_id: str) -> dict[str, str]:
+    merged = {key: "" for key in _SNAPSHOT_PERSIST_KEYS}
+    auto_path = get_conversation_tab_snapshot_path(app, tab_id)
+    workflow_path = _get_conversation_tab_workflow_snapshot_path(app, tab_id)
+    legacy_path = _get_legacy_conversation_tab_snapshot_path(app, tab_id)
+
+    def _read(path: Path | None, keys: tuple[str, ...]) -> dict[str, str]:
+        raw = _read_json_file_with_fallbacks(path)
+        if raw is None:
+            return {}
+        return _normalize_persisted_snapshot(raw, keys)
+
+    for source in (
+        _read(legacy_path, _SNAPSHOT_PERSIST_KEYS),
+        _read(auto_path, ("command", "env")),
+        _read(workflow_path, _WORKFLOW_PERSIST_KEYS),
+    ):
+        for key, value in source.items():
+            if value:
+                merged[key] = value
+    return merged
+
+
+def save_persisted_conversation_tab_snapshots(app, persist_workflow_fields: bool = False) -> None:
+    """将每个 Tab 的配置型字段写入各自的 _ui_tab_snapshot.json，供下次启动恢复。
+
+    直接从各 Tab 的 ConversationTabContext 控件中读取内容，无需切换激活上下文，
+    避免对每个 Tab 执行两次 bind_conversation_tab_context（含 Treeview/Text 刷新）
+    带来的主线程阻塞。
+    """
+
+    def _read_text(widget) -> str:
+        try:
+            return widget.get("1.0", "end-1c") if widget is not None else ""
+        except Exception:
+            return ""
+
+    def _read_var(var) -> str:
+        try:
+            return var.get() if var is not None else ""
+        except Exception:
+            return ""
+
+    for tab_id, context in app._conversation_tabs.items():
+        auto_path = app._get_conversation_tab_snapshot_path(tab_id)
+        workflow_path = _get_conversation_tab_workflow_snapshot_path(app, tab_id)
+        legacy_path = _get_legacy_conversation_tab_snapshot_path(app, tab_id)
+        if auto_path is None:
+            continue
+        existing_data = _read_persisted_conversation_tab_snapshot_bundle(app, tab_id)
+        snapshot_data = _normalize_persisted_snapshot(getattr(context, "ui_snapshot", {}) or {}, _SNAPSHOT_PERSIST_KEYS)
+        workflow_doc = _normalize_workflow_doc(getattr(context, "workflow_doc", {}))
+        ui_loaded = bool(getattr(context, "ui_loaded", True))
+        if ui_loaded:
+            if tab_id == getattr(app, "_bound_conversation_tab_id", ""):
+                workflow_doc = _normalize_workflow_doc({**workflow_doc, **_read_workflow_doc_from_widgets(app)})
+            workflow_doc = _normalize_workflow_doc(
+                workflow_doc
+            )
+            context.workflow_doc = dict(workflow_doc)
+            context.workflow_doc_dirty = False
+            persist_data = {
+                "command": _read_var(context.conversation_command_var),
+                "env": _read_var(context.conversation_server_env_var),
+                "system_instruction": workflow_doc["system_instruction"],
+                "strategy": workflow_doc["strategy"],
+                "intent": workflow_doc["intent"],
+                "workflow_profile": workflow_doc["workflow_profile"],
+                "pending_items_prompt": workflow_doc["pending_items_prompt"],
+                "dialog_summary_prompt": workflow_doc["dialog_summary_prompt"],
+                "dialog_strategy_prompt": workflow_doc["dialog_strategy_prompt"],
+            }
+        else:
+            persist_data = dict(snapshot_data)
+            for key in _WORKFLOW_PERSIST_KEYS:
+                if workflow_doc.get(key):
+                    persist_data[key] = workflow_doc[key]
+
+        for key in _SNAPSHOT_PERSIST_KEYS:
+            current_value = str(persist_data.get(key, "") or "")
+            if current_value:
+                continue
+            snapshot_value = str(snapshot_data.get(key, "") or "")
+            if snapshot_value:
+                persist_data[key] = snapshot_value
+                continue
+            existing_value = str(existing_data.get(key, "") or "")
+            if existing_value:
+                persist_data[key] = existing_value
+        try:
+            auto_path.parent.mkdir(parents=True, exist_ok=True)
+            auto_path.write_text(
+                json.dumps(
+                    {
+                        "command": str(persist_data.get("command", "") or ""),
+                        "env": str(persist_data.get("env", "") or ""),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
                 encoding="utf-8",
             )
         except Exception:
             pass
+        if persist_workflow_fields and workflow_path is not None:
+            try:
+                workflow_path.parent.mkdir(parents=True, exist_ok=True)
+                workflow_path.write_text(
+                    json.dumps(
+                        {key: str(persist_data.get(key, "") or "") for key in _WORKFLOW_PERSIST_KEYS},
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
+        elif workflow_path is not None and any(str(existing_data.get(key, "") or "") for key in _WORKFLOW_PERSIST_KEYS):
+            try:
+                workflow_path.parent.mkdir(parents=True, exist_ok=True)
+                workflow_path.write_text(
+                    json.dumps(
+                        {key: str(existing_data.get(key, "") or "") for key in _WORKFLOW_PERSIST_KEYS},
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
+        if isinstance(legacy_path, Path) and legacy_path.exists():
+            try:
+                legacy_path.unlink()
+            except Exception:
+                pass
 
 
 def load_persisted_conversation_tab_snapshots(app) -> None:
-    """启动时为每个已创建的 Tab 从 _ui_tab_snapshot.json 恢复配置型字段。"""
+    """启动时为每个已创建的 Tab 从持久化快照恢复配置型字段。"""
     for tab_id, context in app._conversation_tabs.items():
-        snapshot_path = app._get_conversation_tab_snapshot_path(tab_id)
-        if not (isinstance(snapshot_path, Path) and snapshot_path.exists()):
+        raw = _read_persisted_conversation_tab_snapshot_bundle(app, tab_id)
+        if not any(str(raw.get(key, "") or "") for key in _SNAPSHOT_PERSIST_KEYS):
             continue
-        try:
-            raw = json.loads(snapshot_path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        if not isinstance(raw, dict):
-            continue
+        context.ui_snapshot = dict(raw)
+        context.workflow_doc = _normalize_workflow_doc(raw)
+        context.workflow_doc_dirty = False
         with app._using_conversation_tab_context(tab_id):
             command_val = str(raw.get("command", "") or "")
             if command_val:
@@ -579,35 +1372,30 @@ def load_persisted_conversation_tab_snapshots(app) -> None:
             env_val = (str(raw.get("env", "") or "")).strip().lower()
             if env_val in {"local", "public"}:
                 app.conversation_server_env_var.set(env_val)
-            if isinstance(app.conversation_system_instruction_text, ScrolledText):
-                val = str(raw.get("system_instruction", "") or "")
-                if val:
-                    app._set_text_content(app.conversation_system_instruction_text, val)
-            if isinstance(app.conversation_customer_profile_text, ScrolledText):
-                val = str(raw.get("workflow_profile", "") or "")
-                if val:
-                    app._set_text_content(app.conversation_customer_profile_text, val)
-            if isinstance(app.conversation_workflow_text, ScrolledText):
-                val = str(raw.get("strategy", "") or "")
-                if val:
-                    app._set_text_content(app.conversation_workflow_text, val)
-            if isinstance(app.conversation_intent_text, ScrolledText):
-                val = str(raw.get("intent", "") or "")
-                if val:
-                    app._set_text_content(app.conversation_intent_text, val)
-            pending_items_prompt = str(raw.get("pending_items_prompt", "") or "")
-            if isinstance(app.conversation_pending_items_prompt_text, ScrolledText):
-                app._set_text_content(app.conversation_pending_items_prompt_text, pending_items_prompt)
-            summary_prompt = str(raw.get("dialog_summary_prompt", "") or "")
-            if isinstance(app.conversation_summary_prompt_text, ScrolledText):
-                app._set_text_content(app.conversation_summary_prompt_text, summary_prompt)
-            strategy_prompt = str(raw.get("dialog_strategy_prompt", "") or "")
-            if isinstance(app.conversation_strategy_prompt_text, ScrolledText):
-                app._set_text_content(app.conversation_strategy_prompt_text, strategy_prompt)
+            _apply_workflow_doc_to_widgets(app, context.workflow_doc)
             try:
                 app._refresh_runtime_system_prompt_only()
             except Exception:
                 pass
+
+    template_id = str(getattr(app, "_conversation_template_tab_id", "") or "")
+    if not template_id:
+        return
+    template_context = app._conversation_tabs.get(template_id)
+    if template_context is None:
+        return
+    template_workflow_path = _get_conversation_tab_workflow_snapshot_path(app, template_id)
+    template_workflow_doc = _normalize_workflow_doc(_read_json_file_with_fallbacks(template_workflow_path))
+    if not any(str(template_workflow_doc.get(key, "") or "") for key in _WORKFLOW_PERSIST_KEYS):
+        return
+    template_context.workflow_doc = dict(template_workflow_doc)
+    template_context.workflow_doc_dirty = False
+    with app._using_conversation_tab_context(template_id):
+        _apply_workflow_doc_to_widgets(app, template_context.workflow_doc)
+        try:
+            app._refresh_runtime_system_prompt_only()
+        except Exception:
+            pass
 
 
 def write_conversation_tab_meta(app, data_dir: Path, title: str) -> None:
@@ -635,6 +1423,7 @@ def create_conversation_tab_internal(
     copy_source_data: bool = True,
     select_new_tab: bool = True,
     persist: bool = True,
+    reset_workflow_fields: bool = True,
 ) -> str | None:
     notebook = app._main_notebook
     if not isinstance(notebook, ttk.Notebook):
@@ -660,6 +1449,20 @@ def create_conversation_tab_internal(
         else (app._workspace_dir / "Data")
     )
     target_data_dir = data_dir if isinstance(data_dir, Path) else app._build_new_tab_data_dir(normalized_title)
+    if not reset_workflow_fields:
+        restored_snapshot: dict[str, str] = {}
+        temp_context = type("_TempContext", (), {"data_dir": target_data_dir})()
+        temp_tabs = getattr(app, "_conversation_tabs", {})
+        existing_temp = temp_tabs.get("__restore__")
+        temp_tabs["__restore__"] = temp_context
+        try:
+            restored_snapshot = _read_persisted_conversation_tab_snapshot_bundle(app, "__restore__")
+        finally:
+            if existing_temp is None:
+                temp_tabs.pop("__restore__", None)
+            else:
+                temp_tabs["__restore__"] = existing_temp
+        snapshot = restored_snapshot or app._capture_conversation_tab_snapshot(source_id)
     if copy_source_data:
         app._copy_tab_case_files(source_data_dir, target_data_dir)
     else:
@@ -692,9 +1495,15 @@ def create_conversation_tab_internal(
     if previous_bound_id and (previous_bound_id in app._conversation_tabs):
         app._bind_conversation_tab_context(previous_bound_id)
     app._apply_conversation_tab_snapshot(context.tab_id, snapshot)
+    context.workflow_doc = _normalize_workflow_doc(snapshot)
+    context.workflow_doc_dirty = False
+    context.runtime_state = _capture_runtime_state(app)
     if select_new_tab:
         notebook.select(frame)
         app._bind_conversation_tab_context(context.tab_id)
+    else:
+        context.ui_snapshot = dict(snapshot)
+        _hibernate_inactive_tab_widgets(context)
     if persist:
         app._refresh_conversation_tab_registry_view()
         app._save_persisted_conversation_tabs()
@@ -719,6 +1528,12 @@ def create_conversation_tab_from_settings(app) -> None:
                 app._set_text_content(app.conversation_pending_items_prompt_text, "")
             if isinstance(app.conversation_strategy_input_text, tk.Text):
                 app.conversation_strategy_input_text.delete("1.0", "end")
+            current_context = app._conversation_tabs.get(tab_id)
+            if current_context is not None:
+                current_context.workflow_doc = _normalize_workflow_doc({})
+                current_context.workflow_doc_dirty = False
+                current_context.runtime_state = dict(getattr(app, "_conversation_runtime_state", {}) or {})
+                app._workflow_doc = dict(current_context.workflow_doc)
             if isinstance(app.dialog_conversation_text, ScrolledText):
                 app._set_text_content(app.dialog_conversation_text, "")
             if isinstance(app.dialog_intent_text, ScrolledText):
@@ -736,12 +1551,17 @@ def create_conversation_tab_from_settings(app) -> None:
             app._dialog_intent_state_by_customer = {}
             app._dialog_intent_state_current_customer_key = ""
             app._current_session_customer_lines = []
+            app._conversation_runtime_state = _capture_runtime_state(app)
             app._refresh_dialog_intent_queue_view()
             app._render_conversation_strategy_history_panel()
 
-            app._call_record_item_by_iid.clear()
-            app._customer_data_customer_by_iid.clear()
-            app._customer_data_case_cache_by_name.clear()
+            apply_call_record_state_to_app(app, make_empty_call_record_state())
+            current_context = app._conversation_tabs.get(tab_id)
+            if current_context is not None:
+                apply_call_record_state_to_context(current_context, make_empty_call_record_state())
+            apply_customer_data_state_to_app(app, make_empty_customer_data_state())
+            if current_context is not None:
+                apply_customer_data_state_to_context(current_context, make_empty_customer_data_state())
             app._customer_data_last_render_key = ""
             if isinstance(app.call_record_tree, ttk.Treeview):
                 app.call_record_tree.delete(*app.call_record_tree.get_children())
@@ -892,8 +1712,10 @@ def load_persisted_conversation_tabs(app) -> None:
             if not child.is_dir():
                 continue
             meta_path = child / "_tab_meta.json"
-            snapshot_path = child / "_ui_tab_snapshot.json"
-            if (not meta_path.exists()) and (not snapshot_path.exists()):
+            auto_snapshot_path = child / "_ui_tab_state.json"
+            workflow_snapshot_path = child / "_ui_tab_workflow.json"
+            legacy_snapshot_path = child / "_ui_tab_snapshot.json"
+            if (not meta_path.exists()) and (not auto_snapshot_path.exists()) and (not workflow_snapshot_path.exists()) and (not legacy_snapshot_path.exists()):
                 continue
             recovered_title = child.name
             if meta_path.exists():
@@ -931,6 +1753,7 @@ def load_persisted_conversation_tabs(app) -> None:
                     copy_source_data=False,
                     select_new_tab=False,
                     persist=False,
+                    reset_workflow_fields=False,
                 )
             except Exception:
                 continue

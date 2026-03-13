@@ -1,0 +1,4 @@
+{
+  "command": "d:\\anaconda3\\python.exe -u mic_chunk_client.py --chunk-ms 20 --queue-size 128 --aec-ref-delay-ms 160 --aec-max-suppress-gain 1.8 --aec-near-end-protect-ratio 1.2 --aec-tts-warmup-mute-ms 100 --aec-tts-ref-wait-mute-ms 1200 --aec-auto-delay-min-score 0.24 --aec-search-span-ms 300 --aec-auto-delay-interval-chunks 4 --aec-adapt-alpha 0.3 --aec-ref-min-rms 450 --server-env local --skip-auto-start-dialog --aec --aec-engine webrtc --aec-webrtc-required --aec-auto-delay --no-aec-echo-gate --no-aec-webrtc-ns --no-aec-webrtc-post-filter --no-aec-tts-half-duplex",
+  "env": "local"
+}

@@ -10,6 +10,16 @@ from .case_store import (
     sanitize_filename_component,
     save_customer_case_file,
 )
+from .case_repository import (
+    build_call_record_items,
+    build_customer_case_cache_by_name,
+    build_customer_case_cache_by_name_from_dir,
+    get_case_source_dirs,
+    iter_case_files,
+    lookup_case_payload_by_name,
+    normalize_customer_lookup_key,
+    read_customer_case_data_from_files,
+)
 from .llm_service import call_ark_chat_completion, call_ark_chat_fast, call_deepseek_chat_completion, extract_llm_text
 from .tab_registry import (
     get_conversation_tab_registry_path,
@@ -20,16 +30,24 @@ from .tab_registry import (
 
 __all__ = [
     "build_customer_case_text",
+    "build_call_record_items",
+    "build_customer_case_cache_by_name",
+    "build_customer_case_cache_by_name_from_dir",
     "build_profile_text_from_slot_items",
     "call_ark_chat_completion",
     "call_ark_chat_fast",
     "call_deepseek_chat_completion",
     "extract_customer_name_from_profile_text",
     "extract_llm_text",
+    "get_case_source_dirs",
+    "iter_case_files",
+    "lookup_case_payload_by_name",
+    "normalize_customer_lookup_key",
     "parse_datetime_to_epoch",
     "parse_profile_kv_rows",
     "pick_random_customer_profile_from_jsonl_path",
     "read_customer_case_file",
+    "read_customer_case_data_from_files",
     "resolve_customer_jsonl_path",
     "sanitize_filename_component",
     "save_customer_case_file",
