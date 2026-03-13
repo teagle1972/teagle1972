@@ -6,7 +6,26 @@
       "Bash(python -c \":*)",
       "Bash(xargs grep:*)",
       "Bash(grep -v \"import\\\\|def \\\\|ctrl_\\\\| None$\")",
-      "Bash(: ttk. \")"
+      "Bash(: ttk. \")",
+      "Read(//d/MyProject/python/Agent/K_Distillation/volca/bk1/3-10/project/**)",
+      "Read(//d/MyProject/python/Agent/K_Distillation/volca/**)",
+      "Bash(grep -r \"def _on_main_notebook_tab_changed\\\\|def _on_conversation_tab_changed\\\\|def.*tab.*change\" d:MyProjectpythonAgentK_Distillationvolcaprojectclient_mic_chunkclient_mic_chunk_ui_v1 --include=*.py)",
+      "Bash(grep -rn \"def _render_conversation_strategy_history_panel\\\\|def _sync_dialog_intent_strategy_for_active_customer\\\\|def _refresh.*view\" d:MyProjectpythonAgentK_Distillationvolcaprojectclient_mic_chunkclient_mic_chunk_ui_v1controllers --include=*.py)",
+      "Bash(python -c \"from controllers.call_timer_overlay import CallTimerOverlay; print\\(''OK''\\)\")",
+      "Read(//d d:/MyProject/python/Agent/K_Distillation/volca/**)",
+      "Bash(python -m PyInstaller --version)",
+      "Bash(conda env:*)",
+      "Bash(for env:*)",
+      "Bash(do)",
+      "Bash(echo -n \"$env: \")",
+      "Bash(\"D:\\\\anaconda3\\\\envs$env\\\\python.exe\" -m PyInstaller --version)",
+      "Bash(done)",
+      "Bash(for py:*)",
+      "Bash(echo -n \"$py: \")",
+      "Bash(\"$py\" -m PyInstaller --version)",
+      "Bash(\"D:/anaconda3/envs/aliyun/python.exe\" -m PyInstaller client_mic_chunk_ui_v1.spec --noconfirm)",
+      "Read(//d/anaconda3/envs/aliyun/Library/bin/**)",
+      "Read(//d/anaconda3/envs/aliyun/Library/lib/**)"
     ],
     "additionalDirectories": [
       "d:\\MyProject\\python\\Agent\\K_Distillation\\volca\\bk1\\3-10\\project\\client_mic_chunk\\client_mic_chunk_ui_v1"
