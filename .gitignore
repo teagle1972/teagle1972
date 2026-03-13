@@ -3,8 +3,7 @@
 logs/
 **/logs/
 
-# Audio artifacts
-*.wav
+# Audio artifacts (large/generated only)
 *.mp3
 *.pcm
 *.ogg
